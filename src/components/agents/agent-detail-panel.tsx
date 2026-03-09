@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils';
 import { useState, useEffect } from 'react';
 import { agents as agentsApi } from '@/lib/api';
 import { ErrorBoundary } from '@/components/layout/error-boundary';
+import { AgentOutputRenderer } from './agent-output-renderer';
 
 interface AgentDetailPanelProps {
   agentId: string;
@@ -110,10 +111,8 @@ function AgentDetailPanelInner({ agentId, agentName, description, onClose, onRun
                 <FileJson className="h-4 w-4" />
                 Output
               </h4>
-              <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-3">
-                <pre className="max-h-64 overflow-auto text-xs text-zinc-300">
-                  {JSON.stringify(selectedRun.outputsJson || selectedRun.outputs || {}, null, 2)}
-                </pre>
+              <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-3 max-h-[70vh] overflow-auto">
+                <AgentOutputRenderer agentId={agentId} data={selectedRun.outputsJson || selectedRun.outputs} />
               </div>
 
               {selectedRun.error && (

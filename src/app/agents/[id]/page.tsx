@@ -6,6 +6,7 @@ import { ArrowLeft, Play, Clock, FileJson, Terminal, CheckCircle2, AlertCircle, 
 import { cn } from '@/lib/utils';
 import { agents as agentsApi } from '@/lib/api';
 import { ErrorBoundary } from '@/components/layout/error-boundary';
+import { AgentOutputRenderer } from '@/components/agents/agent-output-renderer';
 import Link from 'next/link';
 
 const agentDescriptions: Record<string, { description: string; inputs: string; outputs: string }> = {
@@ -153,9 +154,9 @@ function AgentDetailPageInner() {
           <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-zinc-200">
             <FileJson className="h-4 w-4" /> Output Log
           </h3>
-          <pre className="max-h-96 overflow-auto rounded-lg border border-zinc-700 bg-zinc-800 p-4 text-xs text-zinc-300">
-            {JSON.stringify(selectedRun.outputsJson || selectedRun.outputs || {}, null, 2)}
-          </pre>
+          <div className="max-h-[70vh] overflow-auto rounded-lg border border-zinc-700 bg-zinc-800 p-4">
+            <AgentOutputRenderer agentId={agentId} data={selectedRun.outputsJson || selectedRun.outputs} />
+          </div>
           {selectedRun.error && (
             <div className="mt-3">
               <h4 className="mb-2 flex items-center gap-2 text-sm font-medium text-red-400">
