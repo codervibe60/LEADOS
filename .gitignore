@@ -8,5 +8,5 @@ node_modules
 *.db-journal
 dist
 .turbo
-tmpclaude-*.cwd
+tmpclaude-*
 *.cwd
