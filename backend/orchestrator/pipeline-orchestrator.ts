@@ -10,7 +10,7 @@ export class PipelineOrchestrator {
 
   async runPipeline(
     pipelineId: string,
-    type: 'leados' | 'ecos',
+    type: 'leados',
     agentIds: string[],
     config: Record<string, any>
   ): Promise<Record<string, AgentOutput>> {
