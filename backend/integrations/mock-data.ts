@@ -19,16 +19,6 @@ export const mockLeads = [
   { name: 'Sophie Martinez', email: 'sophie@brandlift.co', company: 'BrandLift Media', phone: '+1-555-0115', source: 'linkedin', channel: 'outbound', score: 83, stage: 'booked', segment: 'enterprise' },
 ];
 
-export const mockProducts = [
-  { name: 'LED Sunset Projection Lamp', category: 'Home Decor', viabilityScore: 87, decision: 'GO', margin: 68.5, targetMarket: 'US', budget: 50, status: 'active', shopifyUrl: 'https://store.example.com/sunset-lamp', supplierData: { suppliers: [{ name: 'Shenzhen LED Co.', price: 4.20, moq: 50, shipping: '7-12 days', rating: 4.7 }, { name: 'Guangzhou Light', price: 3.80, moq: 100, shipping: '10-15 days', rating: 4.5 }] } },
-  { name: 'Posture Corrector Pro', category: 'Health & Fitness', viabilityScore: 92, decision: 'GO', margin: 72.3, targetMarket: 'US, UK', budget: 75, status: 'active', shopifyUrl: 'https://store.example.com/posture-pro', supplierData: { suppliers: [{ name: 'Yiwu Health Products', price: 3.50, moq: 100, shipping: '8-14 days', rating: 4.8 }] } },
-  { name: 'Magnetic Phone Mount', category: 'Electronics', viabilityScore: 63, decision: 'GO', margin: 55.0, targetMarket: 'Global', budget: 30, status: 'evaluation', supplierData: { suppliers: [] } },
-  { name: 'Aromatherapy Diffuser Necklace', category: 'Jewelry & Accessories', viabilityScore: 41, decision: 'NO-GO', margin: 45.2, targetMarket: 'US', budget: 25, status: 'rejected', supplierData: { suppliers: [] } },
-  { name: 'Smart Fitness Water Bottle', category: 'Health & Fitness', viabilityScore: 78, decision: 'GO', margin: 61.8, targetMarket: 'US, EU', budget: 60, status: 'sourcing', supplierData: { suppliers: [{ name: 'Dongguan Smart', price: 5.60, moq: 200, shipping: '12-18 days', rating: 4.3 }] } },
-  { name: 'Portable Blender Cup', category: 'Kitchen', viabilityScore: 85, decision: 'GO', margin: 64.0, targetMarket: 'US', budget: 45, status: 'active', shopifyUrl: 'https://store.example.com/blender-cup', supplierData: { suppliers: [{ name: 'Ningbo Kitchen', price: 6.90, moq: 50, shipping: '7-10 days', rating: 4.6 }] } },
-  { name: 'Self-Cleaning Hair Brush', category: 'Beauty', viabilityScore: 55, decision: 'GO', margin: 70.5, targetMarket: 'US, UK', budget: 35, status: 'content', supplierData: { suppliers: [] } },
-  { name: 'Desk Cable Organizer', category: 'Office', viabilityScore: 34, decision: 'NO-GO', margin: 38.0, targetMarket: 'US', budget: 20, status: 'rejected', supplierData: { suppliers: [] } },
-];
 
 export const mockServiceOpportunities = [
   { niche: 'AI-Powered Content Marketing', demandScore: 92, competitionScore: 45, monetizationScore: 88, reasoning: 'Explosive demand for AI content services with relatively low competition from established agencies.' },
@@ -69,28 +59,6 @@ export const mockAnalyticsLeadOS = {
   ],
 };
 
-export const mockAnalyticsECOS = {
-  roas: 3.2,
-  cpa: 12.40,
-  ctr: 2.1,
-  cvr: 3.8,
-  aov: 47.90,
-  totalRevenue: 12450,
-  productPerformance: [
-    { product: 'Sunset Lamp', roas: 4.1, spend: 320, revenue: 1312, orders: 28, cpa: 11.4 },
-    { product: 'Posture Corrector', roas: 3.8, spend: 450, revenue: 1710, orders: 38, cpa: 11.8 },
-    { product: 'Blender Cup', roas: 2.9, spend: 280, revenue: 812, orders: 17, cpa: 16.5 },
-    { product: 'Water Bottle', roas: 2.4, spend: 360, revenue: 864, orders: 18, cpa: 20.0 },
-  ],
-  trends: [
-    { date: '2026-02-01', revenue: 890, spend: 320, roas: 2.8 },
-    { date: '2026-02-08', revenue: 1240, spend: 380, roas: 3.3 },
-    { date: '2026-02-15', revenue: 1580, spend: 420, roas: 3.8 },
-    { date: '2026-02-22', revenue: 1890, spend: 480, roas: 3.9 },
-    { date: '2026-03-01', revenue: 2340, spend: 520, roas: 4.5 },
-    { date: '2026-03-08', revenue: 2680, spend: 560, roas: 4.8 },
-  ],
-};
 
 export const mockInteractions = [
   { type: 'email_sent', content: 'Initial outreach email sent — "Quick question about your growth strategy"', timestamp: '2026-03-01T10:00:00Z' },
@@ -126,11 +94,6 @@ export const mockGoogleAds = {
   getCampaignMetrics: async (id: string) => ({ impressions: 62000, clicks: 1860, spend: 558.00, ctr: 3.0, cpc: 0.30 }),
 };
 
-export const mockShopify = {
-  createProduct: async (data: any) => ({ id: `prod_${Date.now()}`, handle: data.title?.toLowerCase().replace(/\s+/g, '-'), url: `https://store.example.com/${data.title?.toLowerCase().replace(/\s+/g, '-')}`, ...data }),
-  getProduct: async (id: string) => ({ id, title: 'Sample Product', status: 'active' }),
-  getOrderStats: async () => ({ totalOrders: 156, totalRevenue: 7488.60, aov: 48.00 }),
-};
 
 export const mockBlandAI = {
   makeCall: async (data: any) => ({
