@@ -13,8 +13,20 @@ import {
   BarChart3,
   Flame,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Search,
+  MapPin,
+  Sparkles
 } from 'lucide-react';
+
+interface GoogleTrendData {
+  keyword: string;
+  interestOverTime: number;
+  interestByRegion: Array<{ region: string; value: number }>;
+  relatedQueries: Array<{ query: string; value: number }>;
+  risingQueries: Array<{ query: string; value: string }>;
+  timelineData: Array<{ date: string; value: number }>;
+}
 
 interface ServiceOpportunity {
   rank: number;
@@ -30,8 +42,10 @@ interface ServiceOpportunity {
   trendData: {
     redditMentions: number;
     hnMentions: number;
+    googleTrendsScore: number;
     totalEngagement: number;
     topPosts: Array<{ title: string; url: string; source: string }>;
+    googleTrends?: GoogleTrendData;
   };
 }
 
@@ -40,6 +54,7 @@ interface TrendResearchResult {
   dataSourcesSummary: {
     reddit: { subredditsScanned: string[]; postsAnalyzed: number };
     hackerNews: { storiesAnalyzed: number };
+    googleTrends?: { keywordsAnalyzed: number; avgInterest: number };
     totalSignals: number;
   };
   lastUpdated: string;
@@ -92,7 +107,7 @@ export function ServiceResearchOutput({ data, isLive = false }: Props) {
     return (
       <div className="flex flex-col items-center justify-center py-12 space-y-4">
         <RefreshCw className="w-8 h-8 animate-spin text-blue-500" />
-        <p className="text-sm text-muted-foreground">Fetching live trends from Reddit & Hacker News...</p>
+        <p className="text-sm text-muted-foreground">Fetching live trends from Reddit, Hacker News & Google Trends...</p>
       </div>
     );
   }
@@ -148,27 +163,34 @@ export function ServiceResearchOutput({ data, isLive = false }: Props) {
       </div>
 
       {/* Data Sources Summary */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
         <div className="p-2 sm:p-3 bg-orange-500/10 rounded-lg border border-orange-500/20 flex sm:block items-center justify-between">
-          <div className="text-xs text-muted-foreground sm:hidden">Reddit Posts</div>
+          <div className="text-xs text-muted-foreground sm:hidden">Reddit</div>
           <div className="text-lg sm:text-2xl font-bold text-orange-400">
             {displayData.dataSourcesSummary.reddit.postsAnalyzed.toLocaleString()}
           </div>
-          <div className="text-xs text-muted-foreground hidden sm:block">Reddit Posts Analyzed</div>
+          <div className="text-xs text-muted-foreground hidden sm:block">Reddit Posts</div>
         </div>
         <div className="p-2 sm:p-3 bg-purple-500/10 rounded-lg border border-purple-500/20 flex sm:block items-center justify-between">
-          <div className="text-xs text-muted-foreground sm:hidden">HN Stories</div>
+          <div className="text-xs text-muted-foreground sm:hidden">HN</div>
           <div className="text-lg sm:text-2xl font-bold text-purple-400">
             {displayData.dataSourcesSummary.hackerNews.storiesAnalyzed}
           </div>
-          <div className="text-xs text-muted-foreground hidden sm:block">HN Stories Scanned</div>
+          <div className="text-xs text-muted-foreground hidden sm:block">HN Stories</div>
+        </div>
+        <div className="p-2 sm:p-3 bg-green-500/10 rounded-lg border border-green-500/20 flex sm:block items-center justify-between">
+          <div className="text-xs text-muted-foreground sm:hidden">Trends</div>
+          <div className="text-lg sm:text-2xl font-bold text-green-400">
+            {displayData.dataSourcesSummary.googleTrends?.avgInterest || 0}
+          </div>
+          <div className="text-xs text-muted-foreground hidden sm:block">Google Trends Avg</div>
         </div>
         <div className="p-2 sm:p-3 bg-blue-500/10 rounded-lg border border-blue-500/20 flex sm:block items-center justify-between">
-          <div className="text-xs text-muted-foreground sm:hidden">Confidence</div>
+          <div className="text-xs text-muted-foreground sm:hidden">Score</div>
           <div className="text-lg sm:text-2xl font-bold text-blue-400">
             {displayData.confidence}%
           </div>
-          <div className="text-xs text-muted-foreground hidden sm:block">Confidence Score</div>
+          <div className="text-xs text-muted-foreground hidden sm:block">Confidence</div>
         </div>
       </div>
 
@@ -241,16 +263,62 @@ export function ServiceResearchOutput({ data, isLive = false }: Props) {
                 </div>
 
                 {/* Trend Data */}
-                <div className="grid grid-cols-2 gap-2 sm:gap-3">
+                <div className="grid grid-cols-3 gap-2 sm:gap-3">
                   <div className="p-2.5 sm:p-3 bg-orange-500/5 rounded-lg border border-orange-500/10">
                     <div className="text-base sm:text-lg font-bold text-orange-400">{opp.trendData.redditMentions}</div>
-                    <div className="text-xs text-muted-foreground">Reddit Mentions</div>
+                    <div className="text-xs text-muted-foreground">Reddit</div>
                   </div>
                   <div className="p-2.5 sm:p-3 bg-purple-500/5 rounded-lg border border-purple-500/10">
                     <div className="text-base sm:text-lg font-bold text-purple-400">{opp.trendData.hnMentions}</div>
-                    <div className="text-xs text-muted-foreground">HN Mentions</div>
+                    <div className="text-xs text-muted-foreground">HN</div>
+                  </div>
+                  <div className="p-2.5 sm:p-3 bg-green-500/5 rounded-lg border border-green-500/10">
+                    <div className="flex items-center gap-1">
+                      <Search className="w-3.5 h-3.5 text-green-400" />
+                      <span className="text-base sm:text-lg font-bold text-green-400">{opp.trendData.googleTrendsScore || 0}</span>
+                    </div>
+                    <div className="text-xs text-muted-foreground">Google Trends</div>
                   </div>
                 </div>
+
+                {/* Google Trends Details */}
+                {opp.trendData.googleTrends && (
+                  <div className="space-y-2 sm:space-y-3">
+                    {/* Rising Queries */}
+                    {opp.trendData.googleTrends.risingQueries.length > 0 && (
+                      <div className="p-2.5 sm:p-3 bg-gradient-to-r from-green-500/10 to-emerald-500/10 rounded-lg border border-green-500/20">
+                        <div className="flex items-center gap-1.5 mb-2">
+                          <Sparkles className="w-3.5 h-3.5 text-green-400" />
+                          <span className="text-xs font-medium text-green-400">Rising Queries</span>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {opp.trendData.googleTrends.risingQueries.slice(0, 4).map((q, qIdx) => (
+                            <span key={qIdx} className="px-2 py-0.5 text-xs bg-green-500/20 text-green-300 rounded-full">
+                              {q.query} <span className="text-green-400">{q.value}</span>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Top Regions */}
+                    {opp.trendData.googleTrends.interestByRegion.length > 0 && (
+                      <div className="p-2.5 sm:p-3 bg-muted/30 rounded-lg border border-border/50">
+                        <div className="flex items-center gap-1.5 mb-2">
+                          <MapPin className="w-3.5 h-3.5 text-muted-foreground" />
+                          <span className="text-xs font-medium text-muted-foreground">Top Regions</span>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {opp.trendData.googleTrends.interestByRegion.slice(0, 5).map((r, rIdx) => (
+                            <span key={rIdx} className="px-2 py-0.5 text-xs bg-muted rounded-md">
+                              {r.region} <span className="text-blue-400">{r.value}%</span>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Target Platforms */}
                 <div>

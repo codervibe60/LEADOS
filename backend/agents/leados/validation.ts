@@ -5,14 +5,16 @@ const SYSTEM_PROMPT = `You are the Validation Agent for LeadOS — the Service A
 You receive JSON input containing:
 - The full offer package (ICP, pain points, pricing tiers, guarantee, positioning) from the Offer Engineering Agent
 - Service research data (demand, competition, monetization scores) from the Service Research Agent
+- Google Trends data (search interest over time, rising queries, regional demand) from SerpAPI
 
 Your responsibilities:
-1. MARKET DEMAND ANALYSIS (score 0-100): Evaluate real demand signals — search volume trends, platform mentions, buyer intent indicators. Higher = stronger demand.
+1. MARKET DEMAND ANALYSIS (score 0-100): Evaluate real demand signals — Google Trends search interest, Reddit/HN mentions, buyer intent indicators. Weight Google Trends data heavily as authoritative signal. Higher = stronger demand.
 2. COMPETITIVE SATURATION (score 0-100): Assess how crowded the market is. Lower = less saturated = better opportunity.
 3. PRICING FEASIBILITY (score 0-100): Validate whether the proposed pricing tiers match market willingness to pay. Consider anchor pricing of competitors, perceived value, and ICP budget capacity.
 4. CAC vs LTV ANALYSIS: Estimate realistic Customer Acquisition Cost and Lifetime Value. Calculate LTV/CAC ratio — must be >3x for GO.
 5. RISK ASSESSMENT (score 0-100): Overall risk score where lower = less risk. Identify specific risk factors with mitigation strategies.
-6. FINAL DECISION: GO if composite viability is high and LTV/CAC > 3x. NO-GO if fundamental blockers exist. CONDITIONAL if viable with specific changes.
+6. TREND MOMENTUM ANALYSIS: Analyze Google Trends data — rising queries indicate growth potential, declining trends indicate market saturation risk.
+7. FINAL DECISION: GO if composite viability is high and LTV/CAC > 3x. NO-GO if fundamental blockers exist. CONDITIONAL if viable with specific changes.
 
 Return ONLY valid JSON (no markdown, no explanation outside JSON) with this structure:
 {
@@ -34,6 +36,12 @@ Return ONLY valid JSON (no markdown, no explanation outside JSON) with this stru
       "mitigation": "string — how to mitigate"
     }
   ],
+  "trendAnalysis": {
+    "googleTrendsScore": "number 0-100 — search interest level",
+    "trendDirection": "rising | stable | declining",
+    "risingQueriesCount": "number — count of breakout search terms",
+    "marketMomentum": "string — assessment of trend momentum"
+  },
   "reasoning": "string — detailed reasoning for the decision",
   "confidence": "number 0-100"
 }`;
@@ -122,8 +130,14 @@ export class ValidationAgent extends BaseAgent {
           mitigation: 'Adjust campaign intensity by quarter. Run "New Year planning" campaigns in Q4 targeting Q1 budgets.',
         },
       ],
+      trendAnalysis: {
+        googleTrendsScore: 78,
+        trendDirection: 'rising',
+        risingQueriesCount: 4,
+        marketMomentum: 'Strong upward momentum with breakout queries like "AI SDR" and "automated outbound" showing +250% growth. Search interest sustained above 70/100 for 6+ months indicates durable demand.',
+      },
       reasoning:
-        `${serviceName} passes all validation gates. Market demand score of 88 reflects strong and growing interest in AI-powered lead generation (Google Trends +340% YoY for "AI lead generation"). Competitive saturation is low at 35 — most agencies still rely on manual processes, creating a clear technology moat. Pricing feasibility is excellent at 92: B2B SaaS companies routinely spend $3K-$10K/mo on marketing tools and agencies, and the performance guarantee de-risks the purchase decision. The LTV/CAC ratio of 35.2x is exceptional (threshold is 3x), driven by low estimated CAC of $127.80 (blended across paid + outbound channels) and high LTV of $4,500 (based on 12-month average retention at Growth tier pricing). Risk score of 22 is well within acceptable range. Recommendation: PROCEED to funnel build and campaign launch.`,
+        `${serviceName} passes all validation gates. Market demand score of 88 reflects strong and growing interest in AI-powered lead generation (Google Trends +340% YoY for "AI lead generation"). Competitive saturation is low at 35 — most agencies still rely on manual processes, creating a clear technology moat. Pricing feasibility is excellent at 92: B2B SaaS companies routinely spend $3K-$10K/mo on marketing tools and agencies, and the performance guarantee de-risks the purchase decision. The LTV/CAC ratio of 35.2x is exceptional (threshold is 3x), driven by low estimated CAC of $127.80 (blended across paid + outbound channels) and high LTV of $4,500 (based on 12-month average retention at Growth tier pricing). Google Trends confirms 78/100 search interest with 4 rising breakout queries. Risk score of 22 is well within acceptable range. Recommendation: PROCEED to funnel build and campaign launch.`,
       confidence: 91,
     };
   }

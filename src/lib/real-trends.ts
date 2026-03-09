@@ -25,6 +25,15 @@ export interface TrendSignal {
   fetchedAt: string;
 }
 
+export interface GoogleTrendData {
+  keyword: string;
+  interestOverTime: number; // 0-100 scale
+  interestByRegion: Array<{ region: string; value: number }>;
+  relatedQueries: Array<{ query: string; value: number }>;
+  risingQueries: Array<{ query: string; value: string }>; // e.g., "+250%"
+  timelineData: Array<{ date: string; value: number }>;
+}
+
 export interface ServiceOpportunity {
   rank: number;
   niche: string;
@@ -39,8 +48,10 @@ export interface ServiceOpportunity {
   trendData: {
     redditMentions: number;
     hnMentions: number;
+    googleTrendsScore: number;
     totalEngagement: number;
     topPosts: Array<{ title: string; url: string; source: string }>;
+    googleTrends?: GoogleTrendData;
   };
 }
 
@@ -49,6 +60,7 @@ export interface TrendResearchResult {
   dataSourcesSummary: {
     reddit: { subredditsScanned: string[]; postsAnalyzed: number };
     hackerNews: { storiesAnalyzed: number };
+    googleTrends: { keywordsAnalyzed: number; avgInterest: number };
     totalSignals: number;
   };
   lastUpdated: string;
@@ -200,6 +212,146 @@ async function fetchHackerNewsData(keywords: string[]): Promise<TrendSignal[]> {
 }
 
 // ============================================
+// Google Trends via SerpAPI
+// ============================================
+
+interface SerpApiTrendResult {
+  keyword: string;
+  interestOverTime: number;
+  interestByRegion: Array<{ region: string; value: number }>;
+  relatedQueries: Array<{ query: string; value: number }>;
+  risingQueries: Array<{ query: string; value: string }>;
+  timelineData: Array<{ date: string; value: number }>;
+}
+
+async function fetchGoogleTrendsData(keywords: string[], region: string = 'US'): Promise<Map<string, SerpApiTrendResult>> {
+  const results = new Map<string, SerpApiTrendResult>();
+  const apiKey = process.env.SERPAPI_KEY;
+
+  if (!apiKey) {
+    console.log('SERPAPI_KEY not configured, skipping Google Trends data');
+    return results;
+  }
+
+  for (const keyword of keywords.slice(0, 5)) { // Limit to 5 keywords to avoid rate limits
+    try {
+      // Fetch interest over time
+      const trendsUrl = new URL('https://serpapi.com/search.json');
+      trendsUrl.searchParams.set('engine', 'google_trends');
+      trendsUrl.searchParams.set('q', keyword);
+      trendsUrl.searchParams.set('geo', region);
+      trendsUrl.searchParams.set('data_type', 'TIMESERIES');
+      trendsUrl.searchParams.set('date', 'today 12-m'); // Last 12 months
+      trendsUrl.searchParams.set('api_key', apiKey);
+
+      const response = await fetch(trendsUrl.toString(), {
+        headers: { 'Accept': 'application/json' },
+      });
+
+      if (!response.ok) {
+        console.error(`SerpAPI request failed for "${keyword}": ${response.status}`);
+        continue;
+      }
+
+      const data = await response.json();
+
+      // Extract timeline data
+      const timelineData: Array<{ date: string; value: number }> = [];
+      let avgInterest = 0;
+
+      if (data.interest_over_time?.timeline_data) {
+        for (const point of data.interest_over_time.timeline_data) {
+          const value = point.values?.[0]?.extracted_value || 0;
+          timelineData.push({
+            date: point.date || '',
+            value,
+          });
+          avgInterest += value;
+        }
+        if (timelineData.length > 0) {
+          avgInterest = Math.round(avgInterest / timelineData.length);
+        }
+      }
+
+      // Fetch related queries separately
+      const relatedUrl = new URL('https://serpapi.com/search.json');
+      relatedUrl.searchParams.set('engine', 'google_trends');
+      relatedUrl.searchParams.set('q', keyword);
+      relatedUrl.searchParams.set('geo', region);
+      relatedUrl.searchParams.set('data_type', 'RELATED_QUERIES');
+      relatedUrl.searchParams.set('api_key', apiKey);
+
+      const relatedResponse = await fetch(relatedUrl.toString(), {
+        headers: { 'Accept': 'application/json' },
+      });
+
+      let relatedQueries: Array<{ query: string; value: number }> = [];
+      let risingQueries: Array<{ query: string; value: string }> = [];
+
+      if (relatedResponse.ok) {
+        const relatedData = await relatedResponse.json();
+
+        // Top queries
+        if (relatedData.related_queries?.top) {
+          relatedQueries = relatedData.related_queries.top.slice(0, 5).map((q: any) => ({
+            query: q.query || '',
+            value: q.value || 0,
+          }));
+        }
+
+        // Rising queries (breakout trends)
+        if (relatedData.related_queries?.rising) {
+          risingQueries = relatedData.related_queries.rising.slice(0, 5).map((q: any) => ({
+            query: q.query || '',
+            value: q.link ? 'Breakout' : `+${q.value || 0}%`,
+          }));
+        }
+      }
+
+      // Fetch interest by region
+      const regionUrl = new URL('https://serpapi.com/search.json');
+      regionUrl.searchParams.set('engine', 'google_trends');
+      regionUrl.searchParams.set('q', keyword);
+      regionUrl.searchParams.set('geo', region);
+      regionUrl.searchParams.set('data_type', 'GEO_MAP');
+      regionUrl.searchParams.set('api_key', apiKey);
+
+      const regionResponse = await fetch(regionUrl.toString(), {
+        headers: { 'Accept': 'application/json' },
+      });
+
+      let interestByRegion: Array<{ region: string; value: number }> = [];
+
+      if (regionResponse.ok) {
+        const regionData = await regionResponse.json();
+        if (regionData.interest_by_region) {
+          interestByRegion = regionData.interest_by_region.slice(0, 10).map((r: any) => ({
+            region: r.location || '',
+            value: r.value || 0,
+          }));
+        }
+      }
+
+      results.set(keyword, {
+        keyword,
+        interestOverTime: avgInterest,
+        interestByRegion,
+        relatedQueries,
+        risingQueries,
+        timelineData: timelineData.slice(-12), // Last 12 data points
+      });
+
+      // Small delay to respect rate limits
+      await new Promise(resolve => setTimeout(resolve, 200));
+    } catch (error) {
+      console.error(`Failed to fetch Google Trends for "${keyword}":`, error);
+    }
+  }
+
+  return results;
+}
+
+// ============================================
 // Sentiment Analysis
 // ============================================
 
@@ -247,13 +399,25 @@ export async function fetchRealTrends(
   const { keywords, subreddits } = getResearchParams(focus);
 
   // Fetch from all sources in parallel
-  const [redditSignals, hnSignals] = await Promise.all([
+  const [redditSignals, hnSignals, googleTrendsData] = await Promise.all([
     fetchRedditData(subreddits, keywords),
     fetchHackerNewsData(keywords),
+    fetchGoogleTrendsData(keywords, region),
   ]);
 
   // Aggregate and analyze
-  const opportunities = analyzeAndRankOpportunities(redditSignals, hnSignals, keywords);
+  const opportunities = analyzeAndRankOpportunities(redditSignals, hnSignals, keywords, googleTrendsData);
+
+  // Calculate Google Trends summary
+  let googleTrendsKeywordsAnalyzed = 0;
+  let googleTrendsTotalInterest = 0;
+  for (const [, trendData] of googleTrendsData) {
+    googleTrendsKeywordsAnalyzed++;
+    googleTrendsTotalInterest += trendData.interestOverTime;
+  }
+  const avgGoogleInterest = googleTrendsKeywordsAnalyzed > 0
+    ? Math.round(googleTrendsTotalInterest / googleTrendsKeywordsAnalyzed)
+    : 0;
 
   const result: TrendResearchResult = {
     opportunities,
@@ -265,13 +429,17 @@ export async function fetchRealTrends(
       hackerNews: {
         storiesAnalyzed: 150,
       },
-      totalSignals: redditSignals.length + hnSignals.length,
+      googleTrends: {
+        keywordsAnalyzed: googleTrendsKeywordsAnalyzed,
+        avgInterest: avgGoogleInterest,
+      },
+      totalSignals: redditSignals.length + hnSignals.length + googleTrendsKeywordsAnalyzed,
     },
     lastUpdated: new Date().toISOString(),
     lastUpdatedFormatted: 'Just now',
     nextRefresh: getNextMidnight(),
-    reasoning: generateReasoning(opportunities, redditSignals, hnSignals),
-    confidence: calculateConfidence(redditSignals, hnSignals),
+    reasoning: generateReasoning(opportunities, redditSignals, hnSignals, googleTrendsData),
+    confidence: calculateConfidence(redditSignals, hnSignals, googleTrendsData),
   };
 
   // Cache the result
@@ -314,7 +482,8 @@ function getResearchParams(focus: string): { keywords: string[]; subreddits: str
 function analyzeAndRankOpportunities(
   redditSignals: TrendSignal[],
   hnSignals: TrendSignal[],
-  keywords: string[]
+  keywords: string[],
+  googleTrendsData: Map<string, SerpApiTrendResult> = new Map()
 ): ServiceOpportunity[] {
   const nicheMap = new Map<string, {
     demandPoints: number;
@@ -322,10 +491,12 @@ function analyzeAndRankOpportunities(
     monetizationPoints: number;
     redditMentions: number;
     hnMentions: number;
+    googleTrendsScore: number;
     totalEngagement: number;
     topPosts: Array<{ title: string; url: string; source: string }>;
     reasons: string[];
     platforms: Set<string>;
+    googleTrends?: SerpApiTrendResult;
   }>();
 
   // Process Reddit signals
@@ -338,6 +509,7 @@ function analyzeAndRankOpportunities(
         monetizationPoints: 50,
         redditMentions: 0,
         hnMentions: 0,
+        googleTrendsScore: 0,
         totalEngagement: 0,
         topPosts: [],
         reasons: [],
@@ -373,6 +545,7 @@ function analyzeAndRankOpportunities(
         monetizationPoints: 50,
         redditMentions: 0,
         hnMentions: 0,
+        googleTrendsScore: 0,
         totalEngagement: 0,
         topPosts: [],
         reasons: [],
@@ -390,6 +563,62 @@ function analyzeAndRankOpportunities(
 
     for (const post of signal.samplePosts.slice(0, 2)) {
       entry.topPosts.push({ ...post, source: 'Hacker News' });
+    }
+  }
+
+  // Process Google Trends data (highest authority for demand signals)
+  for (const [keyword, trendData] of googleTrendsData) {
+    const niche = normalizeNiche(keyword);
+    if (!nicheMap.has(niche)) {
+      nicheMap.set(niche, {
+        demandPoints: 0,
+        competitionPoints: 50,
+        monetizationPoints: 50,
+        redditMentions: 0,
+        hnMentions: 0,
+        googleTrendsScore: 0,
+        totalEngagement: 0,
+        topPosts: [],
+        reasons: [],
+        platforms: new Set(),
+      });
+    }
+
+    const entry = nicheMap.get(niche)!;
+
+    // Google Trends interest is highly weighted for demand
+    entry.googleTrendsScore = trendData.interestOverTime;
+    entry.demandPoints += trendData.interestOverTime * 0.8; // Strong weight for Google Trends
+    entry.platforms.add('Google Trends');
+    entry.googleTrends = {
+      keyword: trendData.keyword,
+      interestOverTime: trendData.interestOverTime,
+      interestByRegion: trendData.interestByRegion,
+      relatedQueries: trendData.relatedQueries,
+      risingQueries: trendData.risingQueries,
+      timelineData: trendData.timelineData,
+    };
+
+    // Rising queries indicate breakout potential
+    if (trendData.risingQueries.length > 0) {
+      entry.demandPoints += 15;
+      const topRising = trendData.risingQueries[0];
+      entry.reasons.push(`Google Trends shows "${topRising.query}" as ${topRising.value} breakout query`);
+    }
+
+    // High interest score
+    if (trendData.interestOverTime >= 75) {
+      entry.reasons.push(`Google Trends interest at ${trendData.interestOverTime}/100 — strong search demand`);
+    } else if (trendData.interestOverTime >= 50) {
+      entry.reasons.push(`Google Trends interest at ${trendData.interestOverTime}/100 — moderate search demand`);
+    }
+
+    // Regional concentration can indicate targetable markets
+    if (trendData.interestByRegion.length > 0) {
+      const topRegion = trendData.interestByRegion[0];
+      if (topRegion.value >= 80) {
+        entry.reasons.push(`Concentrated demand in ${topRegion.region} (${topRegion.value}% interest)`);
+      }
     }
   }
 
@@ -415,15 +644,17 @@ function analyzeAndRankOpportunities(
       competitionScore,
       monetizationScore,
       compositeScore,
-      growthRate: estimateGrowthRate(demandScore, data.totalEngagement),
+      growthRate: estimateGrowthRate(demandScore, data.totalEngagement, data.googleTrendsScore),
       reasoning: data.reasons.slice(0, 3).join('. ') || `Demand signals detected across ${data.platforms.size} platforms`,
       estimatedMarketSize: estimateMarketSize(demandScore, monetizationScore),
       targetPlatforms: Array.from(data.platforms).slice(0, 4),
       trendData: {
         redditMentions: data.redditMentions,
         hnMentions: data.hnMentions,
+        googleTrendsScore: data.googleTrendsScore,
         totalEngagement: data.totalEngagement,
         topPosts: data.topPosts.slice(0, 5),
+        googleTrends: data.googleTrends,
       },
     });
   }
@@ -493,8 +724,10 @@ function estimateCompetition(niche: string, platformCount: number): number {
   return Math.min(100, Math.max(0, competition));
 }
 
-function estimateGrowthRate(demandScore: number, engagement: number): string {
-  const rate = Math.round((demandScore / 100) * 150 + (engagement / 10000) * 50);
+function estimateGrowthRate(demandScore: number, engagement: number, googleTrendsScore: number = 0): string {
+  // Factor in Google Trends data for more accurate growth estimation
+  const googleBoost = googleTrendsScore > 0 ? (googleTrendsScore / 100) * 50 : 0;
+  const rate = Math.round((demandScore / 100) * 150 + (engagement / 10000) * 50 + googleBoost);
   if (rate > 200) return `+${rate}% YoY`;
   if (rate > 100) return `+${rate}% YoY`;
   if (rate > 50) return `+${rate}% YoY`;
@@ -514,31 +747,55 @@ function estimateMarketSize(demandScore: number, monetizationScore: number): str
 function generateReasoning(
   opportunities: ServiceOpportunity[],
   redditSignals: TrendSignal[],
-  hnSignals: TrendSignal[]
+  hnSignals: TrendSignal[],
+  googleTrendsData: Map<string, SerpApiTrendResult> = new Map()
 ): string {
   const totalRedditMentions = redditSignals.reduce((sum, s) => sum + s.mentions, 0);
   const totalHnMentions = hnSignals.reduce((sum, s) => sum + s.mentions, 0);
+  const googleTrendsCount = googleTrendsData.size;
   const topOpp = opportunities[0];
 
   if (!topOpp) {
     return 'Insufficient data to generate analysis. Please try again later.';
   }
 
-  return `Analyzed ${totalRedditMentions} Reddit discussions across ${new Set(redditSignals.map(s => s.platform)).size} subreddits and ${totalHnMentions} Hacker News stories. "${topOpp.niche}" ranks #1 with composite score ${topOpp.compositeScore} — driven by demand score ${topOpp.demandScore}, low competition (${topOpp.competitionScore}), and monetization potential (${topOpp.monetizationScore}). ${topOpp.growthRate} growth indicates strong market momentum.`;
+  let googleTrendsInsight = '';
+  if (googleTrendsCount > 0 && topOpp.trendData.googleTrendsScore > 0) {
+    googleTrendsInsight = ` Google Trends confirms ${topOpp.trendData.googleTrendsScore}/100 search interest.`;
+  }
+
+  return `Analyzed ${totalRedditMentions} Reddit discussions across ${new Set(redditSignals.map(s => s.platform)).size} subreddits, ${totalHnMentions} Hacker News stories, and ${googleTrendsCount} Google Trends keywords. "${topOpp.niche}" ranks #1 with composite score ${topOpp.compositeScore} — driven by demand score ${topOpp.demandScore}, low competition (${topOpp.competitionScore}), and monetization potential (${topOpp.monetizationScore}).${googleTrendsInsight} ${topOpp.growthRate} growth indicates strong market momentum.`;
 }
 
-function calculateConfidence(redditSignals: TrendSignal[], hnSignals: TrendSignal[]): number {
+function calculateConfidence(
+  redditSignals: TrendSignal[],
+  hnSignals: TrendSignal[],
+  googleTrendsData: Map<string, SerpApiTrendResult> = new Map()
+): number {
   let confidence = 50;
 
-  if (redditSignals.length > 0) confidence += 15;
-  if (hnSignals.length > 0) confidence += 15;
-  if (redditSignals.length > 5) confidence += 10;
+  if (redditSignals.length > 0) confidence += 12;
+  if (hnSignals.length > 0) confidence += 12;
+  if (googleTrendsData.size > 0) confidence += 15; // Google Trends is authoritative
+
+  if (redditSignals.length > 5) confidence += 8;
   if (hnSignals.length > 3) confidence += 5;
+  if (googleTrendsData.size > 3) confidence += 5;
 
   const totalEngagement = [...redditSignals, ...hnSignals].reduce((sum, s) => sum + s.engagement, 0);
-  if (totalEngagement > 10000) confidence += 5;
+  if (totalEngagement > 10000) confidence += 3;
 
-  return Math.min(95, confidence);
+  // High Google Trends interest boosts confidence significantly
+  let avgGoogleInterest = 0;
+  for (const [, data] of googleTrendsData) {
+    avgGoogleInterest += data.interestOverTime;
+  }
+  if (googleTrendsData.size > 0) {
+    avgGoogleInterest /= googleTrendsData.size;
+    if (avgGoogleInterest >= 70) confidence += 5;
+  }
+
+  return Math.min(98, confidence);
 }
 
 function getNextMidnight(): string {

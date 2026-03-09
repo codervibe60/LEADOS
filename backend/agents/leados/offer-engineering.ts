@@ -4,8 +4,15 @@ const SYSTEM_PROMPT = `You are the Offer Engineering Agent for LeadOS — the Se
 
 You receive JSON input containing:
 - Service research data (niche, demand/competition/monetization scores, market size)
+- Google Trends data (search interest, rising queries, regional interest)
 - Target focus area and region
 - Any previous pipeline outputs
+
+Use Google Trends data to:
+- Validate market demand with real search volume signals
+- Identify rising queries to incorporate into messaging and positioning
+- Target high-interest regions for geo-focused campaigns
+- Craft transformation promises that align with actual search intent
 
 Your responsibilities:
 1. DEFINE THE ICP (Ideal Customer Profile): Company size, revenue range, industry vertical, decision-maker title, psychographics, and buying triggers.
@@ -24,7 +31,8 @@ Return ONLY valid JSON (no markdown, no explanation outside JSON) with this stru
       "companySize": "string — employee range",
       "revenue": "string — revenue range",
       "industry": "string — primary industry vertical",
-      "decisionMaker": "string — job title of buyer"
+      "decisionMaker": "string — job title of buyer",
+      "psychographics": "string — mindset, values, and buying triggers"
     },
     "painPoints": ["string — 5 specific pain points"],
     "transformationPromise": "string — the core measurable promise",
@@ -38,7 +46,12 @@ Return ONLY valid JSON (no markdown, no explanation outside JSON) with this stru
     ],
     "guarantee": "string — risk-reversal guarantee statement",
     "positioning": "string — how this offer is positioned vs. competitors",
-    "uniqueMechanism": "string — the proprietary method/technology"
+    "uniqueMechanism": "string — the proprietary method/technology",
+    "trendInsights": {
+      "searchInterest": "number — Google Trends interest score 0-100",
+      "risingKeywords": ["string — breakout search terms to use in messaging"],
+      "topRegions": ["string — geographic areas with highest demand"]
+    }
   },
   "reasoning": "string — explain your offer engineering decisions",
   "confidence": "number 0-100"
@@ -164,6 +177,11 @@ export class OfferEngineeringAgent extends BaseAgent {
           'Unlike traditional agencies that charge retainers for manual work with opaque results, LeadFlow AI is a fully autonomous system — 13 AI agents working 24/7 across every channel. You get the output of an entire marketing department at a fraction of the cost, with complete attribution transparency and performance guarantees that agencies refuse to offer.',
         uniqueMechanism:
           'The LeadOS 13-Agent Orchestration Engine — a proprietary AI pipeline where specialized agents handle every stage from market research to CRM hygiene, communicating via real-time message queues. Each agent optimizes its domain autonomously while the Performance Optimization Agent reallocates budget across channels every 6 hours based on actual revenue attribution, not vanity metrics.',
+        trendInsights: {
+          searchInterest: 78,
+          risingKeywords: ['AI lead generation', 'automated outbound', 'B2B sales automation', 'AI SDR'],
+          topRegions: ['California', 'Texas', 'New York', 'Florida', 'Washington'],
+        },
       },
       reasoning:
         `Analyzed the "${niche}" opportunity from service research. ICP narrowed to B2B SaaS because they have the highest LTV ($4,500+ average), understand the value of lead generation, and have budget to invest. Pricing anchored at $2,997 Starter to filter out non-serious buyers while Enterprise at $9,997 captures high-value accounts. The 90-day guarantee removes risk and accelerates decision-making. Unique mechanism leverages the actual LeadOS architecture as a competitive moat.`,
