@@ -121,3 +121,20 @@ model Setting {
   updatedAt     DateTime @updatedAt
   user          User     @relation(fields: [userId], references: [id])
 }
+
+model ScheduledJob {
+  id          String   @id @default(cuid())
+  name        String
+  cronExpr    String   // e.g. "0 8 * * *" = daily at 8 AM
+  timezone    String   @default("UTC")
+  agentIds    String   // JSON array of agent IDs to run, e.g. '["service-research","offer-engineering"]'
+  pipelineConfig String? // JSON config passed to each agent
+  enabled     Boolean  @default(true)
+  lastRunAt   DateTime?
+  nextRunAt   DateTime?
+  runCount    Int      @default(0)
+  lastStatus  String?  // 'success' | 'error' | 'running'
+  lastError   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}

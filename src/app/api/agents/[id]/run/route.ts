@@ -1,13 +1,9 @@
 import { NextResponse } from 'next/server';
+import { getAgentMockOutput } from '../runs/route';
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const mockOutput = {
-    success: true,
-    data: { message: `Agent ${id} executed successfully`, results: [] },
-    reasoning: 'Agent completed analysis based on provided inputs.',
-    confidence: 85,
-  };
+  const mockOutput = getAgentMockOutput(id);
 
   const run = {
     id: `run_${Date.now()}`,
