@@ -51,7 +51,7 @@ export abstract class BaseAgent {
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
       await this.log('mock_mode', { reason: 'No ANTHROPIC_API_KEY set' });
-      return this.getMockResponse();
+      throw new Error('No ANTHROPIC_API_KEY configured — using mock fallback');
     }
 
     try {
@@ -67,7 +67,7 @@ export abstract class BaseAgent {
       return textBlock ? textBlock.text : '';
     } catch (error: any) {
       await this.log('claude_error', { error: error.message });
-      return this.getMockResponse();
+      throw error;
     }
   }
 
