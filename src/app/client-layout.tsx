@@ -8,7 +8,7 @@ import { useAppStore } from '@/lib/store';
 import { connectSSE } from '@/lib/api';
 
 export function ClientLayout({ children }: { children: React.ReactNode }) {
-  const { updateAgentStatus, updatePipelineStatus, addActivity } = useAppStore();
+  const { updateAgentStatus, updatePipelineStatus, addActivity, setCurrentAgentIndex } = useAppStore();
 
   useEffect(() => {
     let es: EventSource | null = null;
@@ -16,7 +16,14 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
       es = connectSSE((event) => {
         const { type, data } = event;
         switch (type) {
-          case 'agent:started':
+          case 'agent:started': {
+            // Find the agent's index in the current pipeline to set currentAgentIndex
+            const agentIdx = useAppStore.getState().pipeline.agents.findIndex(
+              (a) => a.id === data.agentId
+            );
+            if (agentIdx >= 0) {
+              setCurrentAgentIndex(agentIdx);
+            }
             updateAgentStatus(data.agentId, {
               status: 'running',
               progress: 0,
@@ -28,6 +35,7 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
               message: `${data.agentName || data.agentId} started`,
             });
             break;
+          }
           case 'agent:progress':
             updateAgentStatus(data.agentId, {
               progress: data.percentComplete,
@@ -75,7 +83,7 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
     return () => {
       es?.close();
     };
-  }, [updateAgentStatus, updatePipelineStatus, addActivity]);
+  }, [updateAgentStatus, updatePipelineStatus, addActivity, setCurrentAgentIndex]);
 
   return (
     <>

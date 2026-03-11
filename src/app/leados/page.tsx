@@ -1,10 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { PipelineFlow } from '@/components/agents/pipeline-flow';
 import { AgentDetailPanel } from '@/components/agents/agent-detail-panel';
-import { useAppStore } from '@/lib/store';
-import { pipelines as pipelinesApi, agents as agentsApi } from '@/lib/api';
+import { ProjectSelector } from '@/components/projects/project-selector';
+import { useAppStore, DISCOVERY_AGENT_IDS } from '@/lib/store';
+import { pipelines as pipelinesApi, agents as agentsApi, projects as projectsApi } from '@/lib/api';
 import { ErrorBoundary } from '@/components/layout/error-boundary';
 
 const AGENT_DESCRIPTIONS: Record<string, string> = {
@@ -24,17 +25,42 @@ const AGENT_DESCRIPTIONS: Record<string, string> = {
 };
 
 export default function LeadOSPage() {
-  const { pipeline, updatePipelineStatus, updateAgentStatus, resetPipeline, setCurrentAgentIndex } = useAppStore();
+  const {
+    pipeline,
+    updatePipelineStatus,
+    updateAgentStatus,
+    resetPipeline,
+    setCurrentAgentIndex,
+    projects,
+    selectedProjectId,
+    setProjects,
+    selectProject,
+    addProject,
+  } = useAppStore();
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
 
+  const selectedProject = projects.find((p) => p.id === selectedProjectId);
+  const isInternal = selectedProject?.type === 'internal';
+
+  // Load projects on mount
+  useEffect(() => {
+    projectsApi.list().then(setProjects).catch(() => {});
+  }, [setProjects]);
+
   const handleRunPipeline = async () => {
+    updatePipelineStatus('running');
+    setCurrentAgentIndex(0);
     try {
-      updatePipelineStatus('running');
-      const created = await pipelinesApi.create({ type: 'leados', config: {} });
+      const created = await pipelinesApi.create({
+        type: 'leados',
+        config: {},
+        projectId: selectedProjectId || undefined,
+      });
+      // Start the pipeline — it runs in the background on the server.
+      // SSE events will update the UI in real-time via client-layout.tsx.
       await pipelinesApi.start(created.id);
     } catch {
-      // Simulate pipeline execution with mock data
-      updatePipelineStatus('running');
+      // If API fails, simulate pipeline execution locally
       for (let i = 0; i < pipeline.agents.length; i++) {
         const agent = pipeline.agents[i];
         setCurrentAgentIndex(i);
@@ -83,8 +109,29 @@ export default function LeadOSPage() {
   return (
     <ErrorBoundary>
       <div className="relative">
+        <ProjectSelector
+          projects={projects}
+          selectedProjectId={selectedProjectId}
+          onSelectProject={selectProject}
+          onCreateProject={async (data) => {
+            const created = await projectsApi.create(data);
+            addProject(created);
+            selectProject(created.id);
+          }}
+        />
+
+        {isInternal && (
+          <div className="mb-4 rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3">
+            <p className="text-sm text-amber-400">
+              <span className="font-medium">Internal project</span> — Skipping discovery agents
+              ({DISCOVERY_AGENT_IDS.length} agents: Service Research, Offer Engineering, Validation, Funnel Builder).
+              Pipeline starts at Content & Creative.
+            </p>
+          </div>
+        )}
+
         <PipelineFlow
-          title="LeadOS Pipeline"
+          title={selectedProject ? `${selectedProject.name} Pipeline` : 'LeadOS Pipeline'}
           agents={pipeline.agents}
           pipelineStatus={pipeline.status}
           currentAgentIndex={pipeline.currentAgentIndex}
