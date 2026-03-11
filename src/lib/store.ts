@@ -51,7 +51,10 @@ interface AppState {
   selectedProjectId: string | null;
   setProjects: (projects: Project[]) => void;
   addProject: (project: Project) => void;
+  createProject: (data: { name: string; description?: string; type: 'internal' | 'external' }) => Project;
+  removeProject: (projectId: string) => void;
   selectProject: (projectId: string | null) => void;
+  loadProjects: () => void;
 
   sidebarOpen: boolean;
   toggleSidebar: () => void;
@@ -148,9 +151,46 @@ export const useAppStore = create<AppState>((set, get) => ({
   // Projects
   projects: [],
   selectedProjectId: null,
-  setProjects: (projects) => set({ projects }),
-  addProject: (project) =>
-    set((state) => ({ projects: [project, ...state.projects] })),
+  setProjects: (projects) => {
+    set({ projects });
+    try { localStorage.setItem('leados_projects', JSON.stringify(projects)); } catch {}
+  },
+  addProject: (project) => {
+    const updated = [project, ...get().projects];
+    set({ projects: updated });
+    try { localStorage.setItem('leados_projects', JSON.stringify(updated)); } catch {}
+  },
+  createProject: (data) => {
+    const project: Project = {
+      id: Math.random().toString(36).slice(2) + Date.now().toString(36),
+      name: data.name,
+      description: data.description,
+      type: data.type,
+      status: 'active',
+      config: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    const updated = [project, ...get().projects];
+    set({ projects: updated });
+    try { localStorage.setItem('leados_projects', JSON.stringify(updated)); } catch {}
+    return project;
+  },
+  removeProject: (projectId) => {
+    const state = get();
+    const updated = state.projects.filter((p) => p.id !== projectId);
+    const patches: Partial<AppState> = { projects: updated };
+    if (state.selectedProjectId === projectId) {
+      patches.selectedProjectId = null;
+      patches.pipeline = {
+        status: 'idle' as const,
+        agents: LEADOS_AGENTS.map((a) => ({ ...a, status: 'idle' as const })),
+        currentAgentIndex: 0,
+      };
+    }
+    set(patches as any);
+    try { localStorage.setItem('leados_projects', JSON.stringify(updated)); } catch {}
+  },
   selectProject: (projectId) => {
     const state = get();
     const project = state.projects.find((p) => p.id === projectId);
@@ -170,6 +210,14 @@ export const useAppStore = create<AppState>((set, get) => ({
         currentAgentIndex: 0,
       },
     });
+  },
+  loadProjects: () => {
+    try {
+      const stored = localStorage.getItem('leados_projects');
+      if (stored) {
+        set({ projects: JSON.parse(stored) });
+      }
+    } catch {}
   },
 
   sidebarOpen: true,
