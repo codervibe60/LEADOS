@@ -5,7 +5,7 @@ import { PipelineFlow } from '@/components/agents/pipeline-flow';
 import { AgentDetailPanel } from '@/components/agents/agent-detail-panel';
 import { ProjectSelector } from '@/components/projects/project-selector';
 import { useAppStore, DISCOVERY_AGENT_IDS } from '@/lib/store';
-import { pipelines as pipelinesApi, agents as agentsApi, projects as projectsApi } from '@/lib/api';
+import { pipelines as pipelinesApi, agents as agentsApi } from '@/lib/api';
 import { ErrorBoundary } from '@/components/layout/error-boundary';
 
 const AGENT_DESCRIPTIONS: Record<string, string> = {
@@ -33,19 +33,19 @@ export default function LeadOSPage() {
     setCurrentAgentIndex,
     projects,
     selectedProjectId,
-    setProjects,
     selectProject,
-    addProject,
+    createProject,
+    loadProjects,
   } = useAppStore();
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
 
   const selectedProject = projects.find((p) => p.id === selectedProjectId);
   const isInternal = selectedProject?.type === 'internal';
 
-  // Load projects on mount
+  // Load projects from localStorage on mount
   useEffect(() => {
-    projectsApi.list().then(setProjects).catch(() => {});
-  }, [setProjects]);
+    loadProjects();
+  }, [loadProjects]);
 
   const handleRunPipeline = async () => {
     updatePipelineStatus('running');
@@ -113,9 +113,8 @@ export default function LeadOSPage() {
           projects={projects}
           selectedProjectId={selectedProjectId}
           onSelectProject={selectProject}
-          onCreateProject={async (data) => {
-            const created = await projectsApi.create(data);
-            addProject(created);
+          onCreateProject={(data) => {
+            const created = createProject(data);
             selectProject(created.id);
           }}
         />

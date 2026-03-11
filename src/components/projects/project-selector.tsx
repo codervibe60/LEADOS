@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { FolderOpen, Plus, Building2, Globe, ChevronDown, X, Loader2 } from 'lucide-react';
+import { FolderOpen, Plus, Building2, Globe, ChevronDown, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { Project } from '@/lib/store';
 
@@ -9,7 +9,7 @@ interface ProjectSelectorProps {
   projects: Project[];
   selectedProjectId: string | null;
   onSelectProject: (projectId: string | null) => void;
-  onCreateProject: (data: { name: string; description?: string; type: 'internal' | 'external' }) => Promise<void>;
+  onCreateProject: (data: { name: string; description?: string; type: 'internal' | 'external' }) => void;
 }
 
 export function ProjectSelector({
@@ -20,30 +20,24 @@ export function ProjectSelector({
 }: ProjectSelectorProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(false);
-  const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
   const [newDescription, setNewDescription] = useState('');
   const [newType, setNewType] = useState<'internal' | 'external'>('internal');
 
   const selectedProject = projects.find((p) => p.id === selectedProjectId);
 
-  const handleCreate = async () => {
-    if (!newName.trim() || creating) return;
-    setCreating(true);
-    try {
-      await onCreateProject({
-        name: newName.trim(),
-        description: newDescription.trim() || undefined,
-        type: newType,
-      });
-      setNewName('');
-      setNewDescription('');
-      setNewType('internal');
-      setShowCreateForm(false);
-      setIsOpen(false);
-    } finally {
-      setCreating(false);
-    }
+  const handleCreate = () => {
+    if (!newName.trim()) return;
+    onCreateProject({
+      name: newName.trim(),
+      description: newDescription.trim() || undefined,
+      type: newType,
+    });
+    setNewName('');
+    setNewDescription('');
+    setNewType('internal');
+    setShowCreateForm(false);
+    setIsOpen(false);
   };
 
   return (
@@ -230,24 +224,16 @@ export function ProjectSelector({
                 <div className="flex gap-2">
                   <button
                     onClick={() => setShowCreateForm(false)}
-                    disabled={creating}
-                    className="flex-1 rounded-lg border border-zinc-700 px-3 py-2 text-sm text-zinc-400 hover:bg-zinc-800 disabled:opacity-50"
+                    className="flex-1 rounded-lg border border-zinc-700 px-3 py-2 text-sm text-zinc-400 hover:bg-zinc-800"
                   >
                     Cancel
                   </button>
                   <button
                     onClick={handleCreate}
-                    disabled={!newName.trim() || creating}
-                    className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+                    disabled={!newName.trim()}
+                    className="flex-1 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
                   >
-                    {creating ? (
-                      <>
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        Creating...
-                      </>
-                    ) : (
-                      'Create'
-                    )}
+                    Create
                   </button>
                 </div>
               </div>

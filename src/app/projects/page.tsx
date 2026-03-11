@@ -5,44 +5,31 @@ import { useRouter } from 'next/navigation';
 import { Plus, Building2, Globe, ArrowRight, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAppStore, DISCOVERY_AGENT_IDS } from '@/lib/store';
-import { projects as projectsApi } from '@/lib/api';
 import type { Project } from '@/lib/store';
 
 export default function ProjectsPage() {
   const router = useRouter();
-  const { projects, setProjects, selectProject, addProject } = useAppStore();
+  const { projects, selectProject, createProject, removeProject, loadProjects } = useAppStore();
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState('');
   const [newDescription, setNewDescription] = useState('');
   const [newType, setNewType] = useState<'internal' | 'external'>('internal');
 
   useEffect(() => {
-    projectsApi.list().then(setProjects).catch(() => {});
-  }, [setProjects]);
+    loadProjects();
+  }, [loadProjects]);
 
-  const [createError, setCreateError] = useState<string | null>(null);
-  const [creating, setCreating] = useState(false);
-
-  const handleCreate = async () => {
-    if (!newName.trim() || creating) return;
-    setCreating(true);
-    setCreateError(null);
-    try {
-      const created = await projectsApi.create({
-        name: newName.trim(),
-        description: newDescription.trim() || undefined,
-        type: newType,
-      });
-      addProject(created);
-      setNewName('');
-      setNewDescription('');
-      setNewType('internal');
-      setShowCreate(false);
-    } catch (err: any) {
-      setCreateError(err.message || 'Failed to create project');
-    } finally {
-      setCreating(false);
-    }
+  const handleCreate = () => {
+    if (!newName.trim()) return;
+    createProject({
+      name: newName.trim(),
+      description: newDescription.trim() || undefined,
+      type: newType,
+    });
+    setNewName('');
+    setNewDescription('');
+    setNewType('internal');
+    setShowCreate(false);
   };
 
   const handleLaunch = (project: Project) => {
@@ -133,23 +120,19 @@ export default function ProjectsPage() {
                 </button>
               </div>
             </div>
-            {createError && (
-              <p className="text-sm text-red-400">{createError}</p>
-            )}
             <div className="flex gap-2 pt-2">
               <button
                 onClick={() => setShowCreate(false)}
-                disabled={creating}
-                className="flex-1 rounded-lg border border-zinc-700 px-4 py-2 text-sm text-zinc-400 hover:bg-zinc-800 disabled:opacity-50"
+                className="flex-1 rounded-lg border border-zinc-700 px-4 py-2 text-sm text-zinc-400 hover:bg-zinc-800"
               >
                 Cancel
               </button>
               <button
                 onClick={handleCreate}
-                disabled={!newName.trim() || creating}
+                disabled={!newName.trim()}
                 className="flex-1 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
               >
-                {creating ? 'Creating...' : 'Create Project'}
+                Create Project
               </button>
             </div>
           </div>
@@ -190,6 +173,13 @@ export default function ProjectsPage() {
                     {project.type}
                   </span>
                 </div>
+                <button
+                  onClick={() => removeProject(project.id)}
+                  className="rounded p-1 text-zinc-600 opacity-0 transition-opacity hover:bg-zinc-800 hover:text-red-400 group-hover:opacity-100"
+                  title="Delete project"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
               </div>
 
               <h3 className="mb-1 text-base font-semibold text-white">{project.name}</h3>
