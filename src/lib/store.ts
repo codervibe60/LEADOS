@@ -19,6 +19,25 @@ interface PipelineState {
   currentAgentIndex: number;
 }
 
+export interface Project {
+  id: string;
+  name: string;
+  description?: string;
+  type: 'internal' | 'external';
+  status: string;
+  config?: Record<string, any> | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// First 4 agents are skipped for internal projects
+export const DISCOVERY_AGENT_IDS = [
+  'service-research',
+  'offer-engineering',
+  'validation',
+  'funnel-builder',
+];
+
 interface AppState {
   pipeline: PipelineState;
   updatePipelineStatus: (status: PipelineState['status']) => void;
@@ -26,6 +45,13 @@ interface AppState {
   setPipelineId: (id: string) => void;
   setCurrentAgentIndex: (index: number) => void;
   resetPipeline: () => void;
+
+  // Projects
+  projects: Project[];
+  selectedProjectId: string | null;
+  setProjects: (projects: Project[]) => void;
+  addProject: (project: Project) => void;
+  selectProject: (projectId: string | null) => void;
 
   sidebarOpen: boolean;
   toggleSidebar: () => void;
@@ -60,7 +86,14 @@ const LEADOS_AGENTS: AgentState[] = [
   { id: 'crm-hygiene', name: 'CRM & Data Hygiene Agent', status: 'idle' },
 ];
 
-export const useAppStore = create<AppState>((set) => ({
+function getAgentsForProject(project: Project | undefined): AgentState[] {
+  if (project?.type === 'internal') {
+    return LEADOS_AGENTS.filter((a) => !DISCOVERY_AGENT_IDS.includes(a.id));
+  }
+  return LEADOS_AGENTS;
+}
+
+export const useAppStore = create<AppState>((set, get) => ({
   pipeline: {
     status: 'idle',
     agents: LEADOS_AGENTS,
@@ -92,11 +125,14 @@ export const useAppStore = create<AppState>((set) => ({
       pipeline: { ...state.pipeline, currentAgentIndex: index },
     })),
 
-  resetPipeline: () =>
-    set(() => ({
+  resetPipeline: () => {
+    const state = get();
+    const selectedProject = state.projects.find((p) => p.id === state.selectedProjectId);
+    const agents = getAgentsForProject(selectedProject);
+    set({
       pipeline: {
         status: 'idle' as const,
-        agents: LEADOS_AGENTS.map((a) => ({
+        agents: agents.map((a) => ({
           ...a,
           status: 'idle' as const,
           lastRunTime: undefined,
@@ -106,7 +142,35 @@ export const useAppStore = create<AppState>((set) => ({
         })),
         currentAgentIndex: 0,
       },
-    })),
+    });
+  },
+
+  // Projects
+  projects: [],
+  selectedProjectId: null,
+  setProjects: (projects) => set({ projects }),
+  addProject: (project) =>
+    set((state) => ({ projects: [project, ...state.projects] })),
+  selectProject: (projectId) => {
+    const state = get();
+    const project = state.projects.find((p) => p.id === projectId);
+    const agents = getAgentsForProject(project);
+    set({
+      selectedProjectId: projectId,
+      pipeline: {
+        status: 'idle' as const,
+        agents: agents.map((a) => ({
+          ...a,
+          status: 'idle' as const,
+          lastRunTime: undefined,
+          outputPreview: undefined,
+          progress: undefined,
+          error: undefined,
+        })),
+        currentAgentIndex: 0,
+      },
+    });
+  },
 
   sidebarOpen: true,
   toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),

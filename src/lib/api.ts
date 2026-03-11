@@ -14,7 +14,7 @@ async function fetchApi<T>(url: string, options?: RequestInit): Promise<T> {
 
 // Pipeline endpoints
 export const pipelines = {
-  create: (data: { type: string; config?: Record<string, unknown> }) =>
+  create: (data: { type: string; config?: Record<string, unknown>; projectId?: string }) =>
     fetchApi<any>('/pipelines', { method: 'POST', body: JSON.stringify(data) }),
   list: () => fetchApi<any[]>('/pipelines'),
   get: (id: string) => fetchApi<any>(`/pipelines/${id}`),
@@ -33,6 +33,13 @@ export const agents = {
   run: (id: string, data?: { pipelineId?: string; config?: Record<string, unknown> }) =>
     fetchApi<any>(`/agents/${id}/run`, { method: 'POST', body: JSON.stringify(data || {}) }),
   runs: (id: string) => fetchApi<any[]>(`/agents/${id}/runs`),
+};
+
+// Project endpoints
+export const projects = {
+  list: () => fetchApi<any[]>('/projects'),
+  create: (data: { name: string; description?: string; type: 'internal' | 'external'; config?: Record<string, unknown> }) =>
+    fetchApi<any>('/projects', { method: 'POST', body: JSON.stringify(data) }),
 };
 
 // LeadOS endpoints
