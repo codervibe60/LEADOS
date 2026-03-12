@@ -7,11 +7,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   try {
     await prisma.pipeline.update({
       where: { id },
-      data: { status: 'paused' },
+      data: { status: 'running' },
     });
   } catch {
-    // Pipeline may not exist in DB yet — still acknowledge
+    // Pipeline may not exist in DB
   }
 
-  return NextResponse.json({ id, status: 'paused', message: 'Pipeline paused' });
+  return NextResponse.json({ id, status: 'running', message: 'Pipeline resumed' });
 }

@@ -112,6 +112,8 @@ export default function LeadOSPage() {
     return enabled;
   }, [selectedProject, disabledAgentIds, skippedPhaseIds]);
 
+  const isPaused = pipeline.status === 'paused';
+
   const agentStatuses = useMemo(() => {
     const statuses: Record<string, AgentStatus> = {};
     for (const agent of pipeline.agents) {
@@ -131,6 +133,26 @@ export default function LeadOSPage() {
       Object.values(timerRef.current).forEach(clearInterval);
     };
   }, []);
+
+  // Auto-manage timers based on agent status changes (from SSE events during pipeline runs)
+  useEffect(() => {
+    for (const agent of pipeline.agents) {
+      const hasTimer = !!timerRef.current[agent.id];
+      if (agent.status === 'running' && !hasTimer && !isPaused) {
+        // Agent started (via SSE) — start its timer
+        if (!elapsedTimes[agent.id]) {
+          setElapsedTimes(prev => ({ ...prev, [agent.id]: 0 }));
+        }
+        timerRef.current[agent.id] = setInterval(() => {
+          setElapsedTimes(prev => ({ ...prev, [agent.id]: (prev[agent.id] || 0) + 1 }));
+        }, 1000);
+      } else if (agent.status !== 'running' && hasTimer) {
+        // Agent finished/errored — stop its timer
+        clearInterval(timerRef.current[agent.id]);
+        delete timerRef.current[agent.id];
+      }
+    }
+  }, [pipeline.agents, isPaused]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const startAgentTimer = useCallback((agentId: string) => {
     if (timerRef.current[agentId]) clearInterval(timerRef.current[agentId]);
@@ -277,7 +299,7 @@ export default function LeadOSPage() {
     if (!hasRun) return 'idle';
     const statuses = agents.map(id => agentStatuses[id] || 'idle');
     if (statuses.every(s => s === 'done')) return 'done';
-    if (statuses.some(s => s === 'running')) return 'running';
+    if (statuses.some(s => s === 'running')) return isPaused ? 'paused' : 'running';
     if (statuses.some(s => s === 'error')) return 'error';
     if (statuses.some(s => s === 'done')) return 'partial';
     return 'idle';
@@ -409,7 +431,18 @@ export default function LeadOSPage() {
               )}
               {isRunning && (
                 <button
-                  onClick={() => updatePipelineStatus('paused')}
+                  onClick={() => {
+                    updatePipelineStatus('paused');
+                    // Pause in backend too so the background runner stops
+                    if (pipeline.id) {
+                      pipelinesApi.pause(pipeline.id).catch(() => {});
+                    }
+                    // Stop all running agent timers
+                    Object.keys(timerRef.current).forEach(id => {
+                      clearInterval(timerRef.current[id]);
+                      delete timerRef.current[id];
+                    });
+                  }}
                   className="flex items-center gap-1.5 rounded-lg bg-amber-600 px-4 py-1.5 text-xs font-medium text-white hover:bg-amber-500 transition-colors"
                 >
                   <Pause className="h-3.5 w-3.5" />
@@ -418,7 +451,17 @@ export default function LeadOSPage() {
               )}
               {pipeline.status === 'paused' && (
                 <button
-                  onClick={handleRunPipeline}
+                  onClick={async () => {
+                    updatePipelineStatus('running');
+                    // Update DB status back to running — the backend loop will auto-resume
+                    if (pipeline.id) {
+                      try {
+                        await fetch(`/api/pipelines/${pipeline.id}/resume`, { method: 'POST' });
+                      } catch {
+                        // ignore
+                      }
+                    }
+                  }}
                   className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-1.5 text-xs font-medium text-white hover:bg-indigo-500 transition-colors"
                 >
                   <Play className="h-3.5 w-3.5" />
@@ -601,7 +644,8 @@ export default function LeadOSPage() {
                           'text-sm font-semibold',
                           isSkipped ? 'text-zinc-600' :
                           phaseStatus === 'done' ? 'text-emerald-400' :
-                          phaseStatus === 'running' ? 'text-blue-400' : 'text-zinc-200'
+                          phaseStatus === 'running' ? 'text-blue-400' :
+                          phaseStatus === 'paused' ? 'text-amber-400' : 'text-zinc-200'
                         )}>
                           {phase.label}
                         </h3>
@@ -611,11 +655,15 @@ export default function LeadOSPage() {
                         {phaseStatus === 'running' && (
                           <span className="text-[10px] text-blue-400 bg-blue-500/10 rounded px-1.5 py-0.5 animate-pulse">LIVE</span>
                         )}
+                        {phaseStatus === 'paused' && (
+                          <span className="text-[10px] text-amber-400 bg-amber-500/10 rounded px-1.5 py-0.5">PAUSED</span>
+                        )}
                       </div>
                       <p className="text-[11px] text-zinc-500 mt-0.5">
                         {enabledCount} {enabledCount === 1 ? 'agent' : 'agents'}
                         {phaseStatus === 'done' && ' — completed'}
                         {phaseStatus === 'running' && ' — processing live data'}
+                        {phaseStatus === 'paused' && ' — paused'}
                         {phaseStatus === 'error' && ' — has errors'}
                       </p>
                     </div>
@@ -634,10 +682,11 @@ export default function LeadOSPage() {
                       {phaseAgents.map(agent => {
                         const meta = AGENT_META[agent.id];
                         const Icon = meta?.icon || Bot;
-                        const status = agentStatuses[agent.id] || 'idle';
+                        const rawStatus = agentStatuses[agent.id] || 'idle';
+                        const status = (rawStatus === 'running' && isPaused) ? 'paused' : rawStatus;
                         const pipelineAgent = pipeline.agents.find(a => a.id === agent.id);
                         const elapsed = elapsedTimes[agent.id];
-                        const isThisRunning = runningAgentId === agent.id || status === 'running';
+                        const isThisRunning = runningAgentId === agent.id || rawStatus === 'running';
 
                         return (
                           <div
@@ -647,6 +696,7 @@ export default function LeadOSPage() {
                               'group relative rounded-lg border transition-all cursor-pointer',
                               status === 'done' ? 'border-emerald-500/20 bg-emerald-950/5 hover:border-emerald-500/40 hover:bg-emerald-950/10' :
                               status === 'running' ? 'border-blue-500/30 bg-blue-950/10' :
+                              status === 'paused' ? 'border-amber-500/30 bg-amber-950/10 hover:border-amber-500/40' :
                               status === 'error' ? 'border-red-500/30 bg-red-950/10 hover:border-red-500/40 hover:bg-red-950/15' :
                               'border-zinc-800/60 bg-zinc-900/20 hover:border-indigo-500/30 hover:bg-indigo-950/5'
                             )}
@@ -660,11 +710,14 @@ export default function LeadOSPage() {
                                 'flex h-8 w-8 items-center justify-center rounded-lg shrink-0',
                                 status === 'done' ? 'bg-emerald-900/30' :
                                 status === 'running' ? 'bg-blue-900/30' :
+                                status === 'paused' ? 'bg-amber-900/30' :
                                 status === 'error' ? 'bg-red-900/30' :
                                 'bg-zinc-800/80'
                               )}>
                                 {status === 'running' ? (
                                   <Loader2 className="h-3.5 w-3.5 text-blue-400 animate-spin" />
+                                ) : status === 'paused' ? (
+                                  <Pause className="h-3.5 w-3.5 text-amber-400" />
                                 ) : status === 'done' ? (
                                   <Check className="h-3.5 w-3.5 text-emerald-400" />
                                 ) : status === 'error' ? (
@@ -681,6 +734,7 @@ export default function LeadOSPage() {
                                     'text-xs font-medium truncate',
                                     status === 'done' ? 'text-emerald-400' :
                                     status === 'running' ? 'text-blue-400' :
+                                    status === 'paused' ? 'text-amber-400' :
                                     status === 'error' ? 'text-red-400' : 'text-zinc-200'
                                   )}>
                                     {agent.name}
@@ -688,6 +742,11 @@ export default function LeadOSPage() {
                                   {status === 'running' && (
                                     <span className="text-[9px] text-blue-400/70 bg-blue-500/10 rounded px-1 py-0.5">
                                       LIVE
+                                    </span>
+                                  )}
+                                  {status === 'paused' && (
+                                    <span className="text-[9px] text-amber-400/70 bg-amber-500/10 rounded px-1 py-0.5">
+                                      PAUSED
                                     </span>
                                   )}
                                 </div>
@@ -700,6 +759,11 @@ export default function LeadOSPage() {
                                 {status === 'running' && (
                                   <p className="text-[10px] text-blue-400/70 mt-0.5">
                                     Fetching live data from {meta?.tools?.slice(0, 2).join(', ')}...
+                                  </p>
+                                )}
+                                {status === 'paused' && (
+                                  <p className="text-[10px] text-amber-400/70 mt-0.5">
+                                    Paused — resume pipeline to continue
                                   </p>
                                 )}
                                 {!hasRun && status === 'idle' && (

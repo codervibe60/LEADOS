@@ -34,6 +34,30 @@ function getAgents() {
   return agentMap;
 }
 
+async function checkPaused(id: string): Promise<boolean> {
+  try {
+    const p = await prisma.pipeline.findUnique({ where: { id }, select: { status: true } });
+    return p?.status === 'paused';
+  } catch {
+    return false;
+  }
+}
+
+async function waitWhilePaused(id: string, maxWaitMs = 600000): Promise<boolean> {
+  const start = Date.now();
+  while (await checkPaused(id)) {
+    if (Date.now() - start > maxWaitMs) return false; // timed out while paused
+    await new Promise((r) => setTimeout(r, 2000)); // poll every 2s
+  }
+  // Check if pipeline was cancelled/errored while paused
+  try {
+    const p = await prisma.pipeline.findUnique({ where: { id }, select: { status: true } });
+    return p?.status === 'running';
+  } catch {
+    return false;
+  }
+}
+
 async function runPipelineInBackground(id: string, agentsToRun: string[]) {
   const agents = getAgents();
   const previousOutputs: Record<string, any> = {};
@@ -42,6 +66,12 @@ async function runPipelineInBackground(id: string, agentsToRun: string[]) {
     const agentId = agentsToRun[i];
     const agent = agents.get(agentId);
     if (!agent) continue;
+
+    // Check if pipeline was paused — wait for resume
+    if (await checkPaused(id)) {
+      const resumed = await waitWhilePaused(id);
+      if (!resumed) return; // pipeline was cancelled or timed out
+    }
 
     // Update pipeline progress
     try {
