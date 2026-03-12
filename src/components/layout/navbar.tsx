@@ -1,12 +1,44 @@
 'use client';
 
-import { Bell, Search, User, Building2, Globe, X } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { useRouter } from 'next/navigation';
+import { Bell, Search, User, Building2, Globe, X, LogOut } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 
 export function Navbar() {
+  const router = useRouter();
   const { sidebarOpen, projects, selectedProjectId, selectProject } = useAppStore();
   const selectedProject = projects.find((p) => p.id === selectedProjectId);
+  const [showUserMenu, setShowUserMenu] = useState(false);
+  const [userName, setUserName] = useState('User');
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('leados_user');
+      if (stored) {
+        const user = JSON.parse(stored);
+        setUserName(user.name || user.email?.split('@')[0] || 'User');
+      }
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setShowUserMenu(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const handleLogout = () => {
+    localStorage.removeItem('leados_token');
+    localStorage.removeItem('leados_user');
+    router.push('/login');
+  };
 
   return (
     <header
@@ -52,10 +84,26 @@ export function Navbar() {
           <Bell className="h-5 w-5" />
           <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-indigo-500" />
         </button>
-        <button className="flex items-center gap-2 rounded-lg border border-zinc-700 px-3 py-1.5 text-sm text-zinc-300 hover:bg-zinc-800">
-          <User className="h-4 w-4" />
-          <span className="hidden md:inline">Admin</span>
-        </button>
+        <div className="relative" ref={menuRef}>
+          <button
+            onClick={() => setShowUserMenu(!showUserMenu)}
+            className="flex items-center gap-2 rounded-lg border border-zinc-700 px-3 py-1.5 text-sm text-zinc-300 hover:bg-zinc-800"
+          >
+            <User className="h-4 w-4" />
+            <span className="hidden md:inline">{userName}</span>
+          </button>
+          {showUserMenu && (
+            <div className="absolute right-0 top-full mt-1 w-48 rounded-lg border border-zinc-700 bg-zinc-900 py-1 shadow-xl">
+              <button
+                onClick={handleLogout}
+                className="flex w-full items-center gap-2 px-4 py-2 text-sm text-red-400 hover:bg-zinc-800"
+              >
+                <LogOut className="h-4 w-4" />
+                Sign out
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     </header>
   );

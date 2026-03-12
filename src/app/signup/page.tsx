@@ -47,12 +47,8 @@ export default function SignupPage() {
         return;
       }
 
-      // Store auth token
-      localStorage.setItem('leados_token', data.token);
-      localStorage.setItem('leados_user', JSON.stringify(data.user));
-
-      // Redirect to dashboard
-      router.push('/dashboard');
+      // Redirect to login page with success message
+      router.push('/login?registered=true');
     } catch {
       setError('Network error. Please try again.');
     } finally {
