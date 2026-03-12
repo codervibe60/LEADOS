@@ -136,40 +136,28 @@ function AgentDetailPanelInner({ agentId, agentName, description, isRunning, ela
           </motion.div>
 
           {/* Running Progress Banner */}
-          <AnimatePresence>
-            {isRunning && (
-              <motion.div
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: 'auto', opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                transition={{ duration: 0.3 }}
-                className="overflow-hidden"
-              >
-                <div className="px-6 py-4 bg-indigo-950 border-b border-indigo-500/40">
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-2.5">
-                      <div className="relative">
-                        <Loader2 className="h-5 w-5 text-indigo-400 animate-spin" />
-                      </div>
-                      <span className="text-sm font-semibold text-white">Agent is processing...</span>
-                    </div>
-                    {typeof elapsedTime === 'number' && (
-                      <span className="text-xs font-mono text-white bg-indigo-500/30 border border-indigo-400/30 px-2.5 py-1 rounded-md">
-                        {formatElapsed(elapsedTime)}
-                      </span>
-                    )}
-                  </div>
-                  {/* Animated progress bar */}
-                  <div className="w-full h-2 bg-indigo-500/20 rounded-full overflow-hidden">
-                    <div className="h-full bg-indigo-500 rounded-full animate-progress-indeterminate" />
-                  </div>
-                  <p className="text-xs text-indigo-300 mt-2">
-                    Analyzing data, calling APIs, and generating insights...
-                  </p>
+          {isRunning && (
+            <div className="px-6 py-4 bg-indigo-950 border-b border-indigo-500/40 shrink-0">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2.5">
+                  <Loader2 className="h-5 w-5 text-indigo-400 animate-spin" />
+                  <span className="text-sm font-semibold text-white">Agent is processing...</span>
                 </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
+                {typeof elapsedTime === 'number' && (
+                  <span className="text-xs font-mono text-white bg-indigo-500/30 border border-indigo-400/30 px-2.5 py-1 rounded-md">
+                    {formatElapsed(elapsedTime)}
+                  </span>
+                )}
+              </div>
+              {/* Animated progress bar */}
+              <div className="w-full h-2 bg-indigo-500/20 rounded-full overflow-hidden">
+                <div className="h-full bg-indigo-500 rounded-full animate-progress-indeterminate" />
+              </div>
+              <p className="text-xs text-indigo-300 mt-2">
+                Analyzing data, calling APIs, and generating insights...
+              </p>
+            </div>
+          )}
 
           {/* Completed Banner */}
           <AnimatePresence>
