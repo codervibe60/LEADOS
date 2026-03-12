@@ -3,6 +3,7 @@
 import { Sidebar } from '@/components/layout/sidebar';
 import { Navbar } from '@/components/layout/navbar';
 import { PageWrapper } from '@/components/layout/page-wrapper';
+import { AuthGuard } from '@/components/auth-guard';
 import { useEffect } from 'react';
 import { usePathname } from 'next/navigation';
 import { useAppStore } from '@/lib/store';
@@ -96,14 +97,14 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
   }, [updateAgentStatus, updatePipelineStatus, addActivity, setCurrentAgentIndex]);
 
   if (isLandingPage || isAuthPage) {
-    return <>{children}</>;
+    return <AuthGuard>{children}</AuthGuard>;
   }
 
   return (
-    <>
+    <AuthGuard>
       <Sidebar />
       <Navbar />
       <PageWrapper>{children}</PageWrapper>
-    </>
+    </AuthGuard>
   );
 }
