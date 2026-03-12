@@ -2,6 +2,7 @@
 
 import { useAppStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
+import { motion } from 'framer-motion';
 
 export function PageWrapper({ children }: { children: React.ReactNode }) {
   const { sidebarOpen } = useAppStore();
@@ -13,7 +14,14 @@ export function PageWrapper({ children }: { children: React.ReactNode }) {
         sidebarOpen ? 'pl-64' : 'pl-16'
       )}
     >
-      <div className="p-6">{children}</div>
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, ease: [0.25, 0.4, 0.25, 1] }}
+        className="p-6"
+      >
+        {children}
+      </motion.div>
     </main>
   );
 }

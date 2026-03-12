@@ -7,6 +7,7 @@ import { leados } from '@/lib/api';
 import { useAppStore } from '@/lib/store';
 import { ProjectFilter } from '@/components/projects/project-filter';
 import { ErrorBoundary } from '@/components/layout/error-boundary';
+import { motion, AnimatePresence } from 'framer-motion';
 
 const stageColors: Record<string, string> = {
   new: 'bg-zinc-700 text-zinc-200',
@@ -64,8 +65,19 @@ function AddLeadModal({ onClose, onAdded }: { onClose: () => void; onAdded: () =
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      <form onSubmit={handleSubmit} className="w-full max-w-md rounded-xl border border-zinc-700 bg-zinc-900 p-6 space-y-4">
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.2 }}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+    >
+      <motion.form
+        initial={{ opacity: 0, scale: 0.95, y: 10 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.95, y: 10 }}
+        transition={{ duration: 0.25, ease: [0.25, 0.4, 0.25, 1] }}
+        onSubmit={handleSubmit} className="w-full max-w-md rounded-xl border border-zinc-700 bg-zinc-900 p-6 space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-bold text-white">Add New Lead</h2>
           <button type="button" onClick={onClose} className="text-zinc-400 hover:text-white"><X className="h-5 w-5" /></button>
@@ -103,8 +115,8 @@ function AddLeadModal({ onClose, onAdded }: { onClose: () => void; onAdded: () =
         <button type="submit" disabled={saving} className="w-full rounded-lg bg-indigo-600 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50">
           {saving ? 'Adding...' : 'Add Lead'}
         </button>
-      </form>
-    </div>
+      </motion.form>
+    </motion.div>
   );
 }
 
@@ -160,15 +172,22 @@ function LeadsPageInner() {
         </div>
       </div>
 
-      {showAddModal && <AddLeadModal onClose={() => setShowAddModal(false)} onAdded={fetchLeads} />}
+      <AnimatePresence>
+        {showAddModal && <AddLeadModal onClose={() => setShowAddModal(false)} onAdded={fetchLeads} />}
+      </AnimatePresence>
 
       {/* Pipeline Stage Overview */}
-      <div className="grid gap-3 sm:grid-cols-3 md:grid-cols-6">
+      <motion.div
+        initial="hidden"
+        animate="visible"
+        variants={{ hidden: {}, visible: { transition: { staggerChildren: 0.05 } } }}
+        className="grid gap-3 sm:grid-cols-3 md:grid-cols-6">
         {['new', 'contacted', 'qualified', 'booked', 'won', 'lost'].map(stage => {
           const count = leads.filter(l => l.stage === stage).length;
           return (
-            <button
+            <motion.button
               key={stage}
+              variants={{ hidden: { opacity: 0, y: 10 }, visible: { opacity: 1, y: 0, transition: { duration: 0.35 } } }}
               onClick={() => setStageFilter(stageFilter === stage ? '' : stage)}
               className={cn(
                 'rounded-lg border p-3 text-center transition-all',
@@ -177,10 +196,10 @@ function LeadsPageInner() {
             >
               <p className="text-lg font-bold text-white">{count}</p>
               <p className="text-xs capitalize text-zinc-400">{stage}</p>
-            </button>
+            </motion.button>
           );
         })}
-      </div>
+      </motion.div>
 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-3">

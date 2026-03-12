@@ -4,6 +4,7 @@ import { Suspense, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Zap, Mail, Lock, ArrowRight, Loader2, Eye, EyeOff, CheckCircle2 } from 'lucide-react';
+import { motion } from 'framer-motion';
 
 function LoginForm() {
   const router = useRouter();
@@ -57,7 +58,12 @@ function LoginForm() {
         <div className="absolute right-0 bottom-0 h-[400px] w-[400px] rounded-full bg-purple-600/5 blur-[100px]" />
       </div>
 
-      <div className="relative z-10 w-full max-w-md">
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, ease: [0.25, 0.4, 0.25, 1] }}
+        className="relative z-10 w-full max-w-md"
+      >
         {/* Logo */}
         <Link href="/" className="flex items-center justify-center gap-2 mb-8">
           <Zap className="h-8 w-8 text-indigo-400" />
@@ -65,7 +71,12 @@ function LoginForm() {
         </Link>
 
         {/* Card */}
-        <div className="rounded-2xl border border-zinc-800 bg-zinc-900/50 backdrop-blur-sm p-8">
+        <motion.div
+          initial={{ opacity: 0, y: 16, scale: 0.98 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ duration: 0.5, delay: 0.15, ease: [0.25, 0.4, 0.25, 1] }}
+          className="rounded-2xl border border-zinc-800 bg-zinc-900/50 backdrop-blur-sm p-8"
+        >
           <div className="text-center mb-6">
             <h1 className="text-xl font-bold text-white">Welcome back</h1>
             <p className="text-sm text-zinc-400 mt-1">Sign in to your LeadOS account</p>
@@ -73,16 +84,26 @@ function LoginForm() {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             {showSuccess && (
-              <div className="flex items-center gap-2 rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-4 py-3 text-sm text-emerald-400">
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                transition={{ duration: 0.3 }}
+                className="flex items-center gap-2 rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-4 py-3 text-sm text-emerald-400"
+              >
                 <CheckCircle2 className="h-4 w-4 shrink-0" />
                 Account created successfully! Please sign in.
-              </div>
+              </motion.div>
             )}
 
             {error && (
-              <div className="rounded-lg border border-red-500/20 bg-red-500/5 px-4 py-3 text-sm text-red-400">
+              <motion.div
+                initial={{ opacity: 0, x: -8 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.3 }}
+                className="rounded-lg border border-red-500/20 bg-red-500/5 px-4 py-3 text-sm text-red-400"
+              >
                 {error}
-              </div>
+              </motion.div>
             )}
 
             <div>
@@ -152,13 +173,18 @@ function LoginForm() {
               </Link>
             </p>
           </div>
-        </div>
+        </motion.div>
 
         {/* Footer */}
-        <p className="mt-6 text-center text-xs text-zinc-600">
+        <motion.p
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.5, delay: 0.4 }}
+          className="mt-6 text-center text-xs text-zinc-600"
+        >
           13 Agents. One Pipeline. Zero Manual Work.
-        </p>
-      </div>
+        </motion.p>
+      </motion.div>
     </div>
   );
 }
