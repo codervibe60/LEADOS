@@ -240,13 +240,11 @@ export function FunnelBuilderOutput({ data }: Props) {
                 </span>
               </div>
             ))}
-            {funnelData.leadForm.submitButtonText && (
-              <div className="pt-2">
-                <div className="inline-block px-4 py-2 bg-green-600 text-white text-xs sm:text-sm rounded-lg font-medium">
-                  {funnelData.leadForm.submitButtonText}
-                </div>
+            <div className="pt-2">
+              <div className="inline-block px-4 py-2 bg-green-600 text-white text-xs sm:text-sm rounded-lg font-medium">
+                Submit
               </div>
-            )}
+            </div>
           </div>
 
           {/* Submit Action */}
