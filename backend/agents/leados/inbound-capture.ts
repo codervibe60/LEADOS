@@ -157,6 +157,22 @@ export class InboundCaptureAgent extends BaseAgent {
         };
       }
 
+      // Fetch real leads from database first
+      let dbLeads: any[] = [];
+      try {
+        const { prisma } = await import('@/lib/prisma');
+        dbLeads = await prisma.lead.findMany({
+          orderBy: { createdAt: 'desc' },
+          take: 50,
+          include: { interactions: true },
+        });
+        if (dbLeads.length > 0) {
+          await this.log('db_leads_fetched', { count: dbLeads.length });
+        }
+      } catch (err: any) {
+        await this.log('db_leads_error', { error: err.message });
+      }
+
       // Fetch real data from integrations when available
       let realHubSpotContacts: any[] = [];
       let realEnrichments: Map<string, any> = new Map();
@@ -229,6 +245,26 @@ export class InboundCaptureAgent extends BaseAgent {
         }
       }
 
+      // Format real DB leads for the LLM context
+      const realLeadsForContext = dbLeads.length > 0
+        ? dbLeads.map((l: any) => ({
+            name: l.name,
+            email: l.email,
+            company: l.company,
+            phone: l.phone,
+            source: l.source,
+            channel: l.channel || 'inbound',
+            score: l.score,
+            stage: l.stage,
+            segment: l.segment,
+            utmSource: l.utmSource,
+            utmMedium: l.utmMedium,
+            utmCampaign: l.utmCampaign,
+            interactionCount: l.interactions?.length || 0,
+            createdAt: l.createdAt,
+          }))
+        : null;
+
       const userMessage = JSON.stringify({
         serviceNiche: inputs.config?.niche || inputs.config?.serviceNiche || 'B2B SaaS Lead Generation',
         ...inputs.config,
@@ -239,11 +275,15 @@ export class InboundCaptureAgent extends BaseAgent {
           adCampaigns: paidTrafficData.googleAds || paidTrafficData.metaAds ? { google: !!paidTrafficData.googleAds, meta: !!paidTrafficData.metaAds } : null,
           outboundProspects: outboundData.prospectList || outboundData.coldEmail?.prospectCount || null,
         },
+        realLeadsFromDatabase: realLeadsForContext,
+        IMPORTANT_INSTRUCTION: realLeadsForContext
+          ? 'USE ONLY the real leads from realLeadsFromDatabase. Do NOT invent or generate fictional leads. Score and enrich these real leads only.'
+          : null,
         realData: {
           hubspotContacts: realHubSpotContacts.length > 0 ? realHubSpotContacts.length : null,
           enrichedLeads: realEnrichments.size > 0 ? realEnrichments.size : null,
           enrichmentSources: enrichmentSources.length > 0 ? enrichmentSources : null,
-          dataSource: enrichmentSources.length > 0 ? 'live_apis' : 'llm_generated',
+          dataSource: dbLeads.length > 0 ? 'database' : enrichmentSources.length > 0 ? 'live_apis' : 'llm_generated',
         },
       });
 

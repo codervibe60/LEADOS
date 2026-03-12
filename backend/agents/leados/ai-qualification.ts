@@ -140,16 +140,70 @@ export class AIQualificationAgent extends BaseAgent {
         };
       }
 
-      // Execute real AI voice calls via Bland AI when available
-      let realCallResults: any[] = [];
-      const qualifiedLeads = inboundData.leadsProcessed?.filter((l: any) => l.score >= 60) || [];
+      // Fetch real leads from database if upstream doesn't provide them
+      // Skip leads already processed (qualified, nurture, disqualified, booked, won, lost)
+      let qualifiedLeads = inboundData.leadsProcessed?.filter((l: any) => l.score >= 60) || [];
 
-      if (blandAI.isBlandAIAvailable() && qualifiedLeads.length > 0) {
+      if (qualifiedLeads.length === 0) {
+        try {
+          const { prisma } = await import('@/lib/prisma');
+          const dbLeads = await prisma.lead.findMany({
+            where: {
+              stage: { notIn: ['qualified', 'nurture', 'disqualified', 'booked', 'won', 'lost'] },
+              qualificationOutcome: null, // not yet qualified
+            },
+            orderBy: { createdAt: 'desc' },
+            take: 20,
+          });
+          if (dbLeads.length > 0) {
+            qualifiedLeads = dbLeads.map((l: any) => ({
+              name: l.name,
+              email: l.email,
+              company: l.company,
+              phone: l.phone,
+              source: l.source,
+              channel: l.channel || 'inbound',
+              score: l.score || 50,
+              segment: l.segment || 'unknown',
+              stage: l.stage || 'new',
+            }));
+            await this.log('db_leads_fetched_for_qualification', { count: dbLeads.length });
+          }
+        } catch (err: any) {
+          await this.log('db_leads_error', { error: err.message });
+        }
+      }
+
+      // Validate phone numbers — only international format (+ followed by 10+ digits) are callable
+      const isValidPhone = (phone: string | null | undefined): boolean => {
+        if (!phone) return false;
+        const cleaned = phone.replace(/[\s\-()]/g, '');
+        // Must start with + and have at least 10 digits total (e.g., +918766827064)
+        return /^\+\d{10,15}$/.test(cleaned);
+      };
+
+      // Split leads: callable (valid phone) vs email-only (no/invalid phone)
+      const callableLeads = qualifiedLeads.filter(l => isValidPhone(l.phone));
+      const emailOnlyLeads = qualifiedLeads.filter(l => !isValidPhone(l.phone));
+
+      if (emailOnlyLeads.length > 0) {
+        await this.log('leads_without_valid_phone', {
+          count: emailOnlyLeads.length,
+          leads: emailOnlyLeads.map(l => ({ name: l.name, phone: l.phone, reason: 'invalid_phone_format' })),
+          action: 'Route to email nurture instead of voice call',
+        });
+      }
+
+      // Execute real AI voice calls via Bland AI ONLY when explicitly enabled
+      // This prevents accidental calls on every agent test run
+      let realCallResults: any[] = [];
+      const enableLiveCalls = inputs.config?.enableLiveCalls === true;
+
+      if (enableLiveCalls && blandAI.isBlandAIAvailable() && callableLeads.length > 0) {
         const niche = inputs.config?.niche || 'B2B SaaS Lead Generation';
-        const leadsToCall = qualifiedLeads.slice(0, 8);
+        const leadsToCall = callableLeads.slice(0, 8);
 
         for (const lead of leadsToCall) {
-          if (!lead.phone) continue;
           try {
             const callTask = `You are Alex, an AI qualification specialist from LeadOS. You're calling ${lead.name || 'the prospect'} at ${lead.company || 'their company'} to qualify them for ${niche} services. Follow the BANT framework: ask about Budget, Authority, Need, and Timeline. Be warm, consultative, never pushy. Keep the call under 5 minutes. Start by obtaining consent to record.`;
 
@@ -209,10 +263,17 @@ export class AIQualificationAgent extends BaseAgent {
           icp: offerData.icp || offerData.idealCustomerProfile || null,
           pricing: offerData.pricingTiers || offerData.pricing || null,
           guarantee: offerData.guarantee || null,
-          qualifiedLeads: qualifiedLeads.length > 0 ? qualifiedLeads : null,
+          callableLeads: callableLeads.length > 0 ? callableLeads : null,
+          emailOnlyLeads: emailOnlyLeads.length > 0 ? emailOnlyLeads : null,
+          allLeads: qualifiedLeads.length > 0 ? qualifiedLeads : null,
           scoringModel: inboundData.scoringModel || null,
           segments: inboundData.segmentation?.segments || null,
         },
+        IMPORTANT_INSTRUCTION: qualifiedLeads.length > 0
+          ? `USE ONLY the real leads provided. Do NOT invent fictional leads.
+For leads in callableLeads (valid phone): generate AI voice call results with BANT scoring.
+For leads in emailOnlyLeads (invalid/missing phone): set callStatus to "no_valid_phone", outcome to "medium_intent", and routingAction to "Route to email nurture — no valid phone for voice call". Do NOT attempt to call them.`
+          : null,
         realData: {
           callResults: realCallResults.length > 0 ? realCallResults : null,
           dataSource: realCallResults.length > 0 ? 'live_bland_ai' : 'llm_generated',
@@ -241,6 +302,60 @@ export class AIQualificationAgent extends BaseAgent {
           return r;
         });
         parsed.callResults = enrichedResults;
+      }
+
+      // Update lead stage + qualification data in the database
+      try {
+        const { prisma } = await import('@/lib/prisma');
+        for (const result of parsed.callResults || []) {
+          if (!result.leadEmail) continue;
+
+          // Map outcome to stage
+          // Leads without valid phone go to 'contacted' (email nurture), not disqualified
+          const stageMap: Record<string, string> = {
+            high_intent_checkout: 'qualified',
+            high_intent_sales: 'qualified',
+            medium_intent: 'nurture',
+            low_intent: 'disqualified',
+          };
+          const isNoPhone = result.callStatus === 'no_valid_phone';
+          const newStage = isNoPhone ? 'contacted' : (stageMap[result.outcome] || 'contacted');
+
+          await prisma.lead.updateMany({
+            where: { email: result.leadEmail },
+            data: {
+              stage: newStage,
+              qualificationScore: result.score || null,
+              qualificationOutcome: result.outcome || null,
+              routingDecision: result.routingAction || null,
+            },
+          });
+
+          // Log the qualification call as an interaction
+          const lead = await prisma.lead.findFirst({ where: { email: result.leadEmail } });
+          if (lead) {
+            await prisma.interaction.create({
+              data: {
+                leadId: lead.id,
+                type: 'ai_qualification_call',
+                content: `AI call: ${result.callStatus} | Score: ${result.score} | Outcome: ${result.outcome} | Duration: ${result.duration}s`,
+                metadata: JSON.stringify({
+                  callStatus: result.callStatus,
+                  duration: result.duration,
+                  score: result.score,
+                  outcome: result.outcome,
+                  sentiment: result.sentiment,
+                  keySignals: result.keySignals,
+                  objectionsRaised: result.objectionsRaised,
+                  callId: result.callId || null,
+                }),
+              },
+            });
+          }
+        }
+        await this.log('db_leads_updated', { count: (parsed.callResults || []).length });
+      } catch (err: any) {
+        await this.log('db_update_error', { error: err.message });
       }
 
       this.status = 'done';
