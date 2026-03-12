@@ -183,8 +183,8 @@ export class AIQualificationAgent extends BaseAgent {
       };
 
       // Split leads: callable (valid phone) vs email-only (no/invalid phone)
-      const callableLeads = qualifiedLeads.filter(l => isValidPhone(l.phone));
-      const emailOnlyLeads = qualifiedLeads.filter(l => !isValidPhone(l.phone));
+      const callableLeads = qualifiedLeads.filter((l: any) => isValidPhone(l.phone));
+      const emailOnlyLeads = qualifiedLeads.filter((l: any) => !isValidPhone(l.phone));
 
       if (emailOnlyLeads.length > 0) {
         await this.log('leads_without_valid_phone', {
