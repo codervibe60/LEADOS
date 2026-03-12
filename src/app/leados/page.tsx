@@ -112,6 +112,8 @@ export default function LeadOSPage() {
     return enabled;
   }, [selectedProject, disabledAgentIds, skippedPhaseIds]);
 
+  const isPaused = pipeline.status === 'paused';
+
   const agentStatuses = useMemo(() => {
     const statuses: Record<string, AgentStatus> = {};
     for (const agent of pipeline.agents) {
@@ -131,6 +133,26 @@ export default function LeadOSPage() {
       Object.values(timerRef.current).forEach(clearInterval);
     };
   }, []);
+
+  // Auto-manage timers based on agent status changes (from SSE events during pipeline runs)
+  useEffect(() => {
+    for (const agent of pipeline.agents) {
+      const hasTimer = !!timerRef.current[agent.id];
+      if (agent.status === 'running' && !hasTimer && !isPaused) {
+        // Agent started (via SSE) — start its timer
+        if (!elapsedTimes[agent.id]) {
+          setElapsedTimes(prev => ({ ...prev, [agent.id]: 0 }));
+        }
+        timerRef.current[agent.id] = setInterval(() => {
+          setElapsedTimes(prev => ({ ...prev, [agent.id]: (prev[agent.id] || 0) + 1 }));
+        }, 1000);
+      } else if (agent.status !== 'running' && hasTimer) {
+        // Agent finished/errored — stop its timer
+        clearInterval(timerRef.current[agent.id]);
+        delete timerRef.current[agent.id];
+      }
+    }
+  }, [pipeline.agents, isPaused]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const startAgentTimer = useCallback((agentId: string) => {
     if (timerRef.current[agentId]) clearInterval(timerRef.current[agentId]);
@@ -267,7 +289,6 @@ export default function LeadOSPage() {
   const runningCount = pipeline.agents.filter((a) => a.status === 'running').length;
   const totalAgents = pipeline.agents.length;
   const isRunning = pipeline.status === 'running';
-  const isPaused = pipeline.status === 'paused';
   const hasRun = pipeline.status !== 'idle';
   const progressPercent = totalAgents > 0 ? Math.round((completedCount / totalAgents) * 100) : 0;
 
@@ -410,7 +431,18 @@ export default function LeadOSPage() {
               )}
               {isRunning && (
                 <button
-                  onClick={() => updatePipelineStatus('paused')}
+                  onClick={() => {
+                    updatePipelineStatus('paused');
+                    // Pause in backend too so the background runner stops
+                    if (pipeline.id) {
+                      pipelinesApi.pause(pipeline.id).catch(() => {});
+                    }
+                    // Stop all running agent timers
+                    Object.keys(timerRef.current).forEach(id => {
+                      clearInterval(timerRef.current[id]);
+                      delete timerRef.current[id];
+                    });
+                  }}
                   className="flex items-center gap-1.5 rounded-lg bg-amber-600 px-4 py-1.5 text-xs font-medium text-white hover:bg-amber-500 transition-colors"
                 >
                   <Pause className="h-3.5 w-3.5" />
@@ -419,7 +451,17 @@ export default function LeadOSPage() {
               )}
               {pipeline.status === 'paused' && (
                 <button
-                  onClick={handleRunPipeline}
+                  onClick={async () => {
+                    updatePipelineStatus('running');
+                    // Update DB status back to running — the backend loop will auto-resume
+                    if (pipeline.id) {
+                      try {
+                        await fetch(`/api/pipelines/${pipeline.id}/resume`, { method: 'POST' });
+                      } catch {
+                        // ignore
+                      }
+                    }
+                  }}
                   className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-1.5 text-xs font-medium text-white hover:bg-indigo-500 transition-colors"
                 >
                   <Play className="h-3.5 w-3.5" />
