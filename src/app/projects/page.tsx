@@ -6,6 +6,7 @@ import { Plus, Building2, Globe, ArrowRight, Trash2, AlertTriangle, X, ChevronDo
 import { cn } from '@/lib/utils';
 import { useAppStore, DISCOVERY_AGENT_IDS, LEADOS_AGENTS } from '@/lib/store';
 import type { Project } from '@/lib/store';
+import { motion, AnimatePresence } from 'framer-motion';
 
 export default function ProjectsPage() {
   const router = useRouter();
@@ -133,8 +134,16 @@ export default function ProjectsPage() {
       </div>
 
       {/* Create form */}
+      <AnimatePresence>
       {showCreate && (
-        <div className="mb-6 rounded-lg border border-zinc-700 bg-zinc-900 p-5">
+        <motion.div
+          initial={{ opacity: 0, height: 0 }}
+          animate={{ opacity: 1, height: 'auto' }}
+          exit={{ opacity: 0, height: 0 }}
+          transition={{ duration: 0.3, ease: [0.25, 0.4, 0.25, 1] }}
+          className="mb-6 overflow-hidden"
+        >
+        <div className="rounded-lg border border-zinc-700 bg-zinc-900 p-5">
           <h3 className="mb-4 text-lg font-medium text-white">Create Project</h3>
           <div className="space-y-4">
             <div>
@@ -313,7 +322,9 @@ export default function ProjectsPage() {
             </div>
           </div>
         </div>
+        </motion.div>
       )}
+      </AnimatePresence>
 
       {/* Project list */}
       {projects.length === 0 && !showCreate ? (
@@ -325,10 +336,17 @@ export default function ProjectsPage() {
           </p>
         </div>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <motion.div
+          initial="hidden"
+          animate="visible"
+          variants={{ hidden: {}, visible: { transition: { staggerChildren: 0.06 } } }}
+          className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
+        >
           {projects.map((project) => (
-            <div
+            <motion.div
               key={project.id}
+              variants={{ hidden: { opacity: 0, y: 12 }, visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: [0.25, 0.4, 0.25, 1] } } }}
+              whileHover={{ y: -2, transition: { duration: 0.2 } }}
               className="group rounded-lg border border-zinc-800 bg-zinc-900 p-5 transition-colors hover:border-zinc-700"
             >
               <div className="mb-3 flex items-start justify-between">
@@ -392,17 +410,29 @@ export default function ProjectsPage() {
                 Launch Pipeline
                 <ArrowRight className="h-4 w-4" />
               </button>
-            </div>
+            </motion.div>
           ))}
-        </div>
+        </motion.div>
       )}
 
       {/* Delete confirmation modal */}
+      <AnimatePresence>
       {deleteConfirm && (() => {
         const project = projects.find((p) => p.id === deleteConfirm);
         return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-            <div className="mx-4 w-full max-w-md rounded-xl border border-zinc-700 bg-zinc-900 p-6 shadow-2xl">
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              transition={{ duration: 0.25, ease: [0.25, 0.4, 0.25, 1] }}
+              className="mx-4 w-full max-w-md rounded-xl border border-zinc-700 bg-zinc-900 p-6 shadow-2xl">
               <div className="mb-4 flex items-center gap-3">
                 <div className="flex h-10 w-10 items-center justify-center rounded-full bg-red-500/10">
                   <AlertTriangle className="h-5 w-5 text-red-400" />
@@ -432,10 +462,11 @@ export default function ProjectsPage() {
                   Delete Project
                 </button>
               </div>
-            </div>
-          </div>
+            </motion.div>
+          </motion.div>
         );
       })()}
+      </AnimatePresence>
     </div>
   );
 }

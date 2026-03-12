@@ -10,6 +10,7 @@ import { leados } from '@/lib/api';
 import { useAppStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
+import { motion } from 'framer-motion';
 
 interface AnalyticsData {
   totalLeads: number;
@@ -130,32 +131,26 @@ export default function DashboardPage() {
       {!loading && !error && (
         <>
           {/* KPI Summary Cards */}
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <KPICard
-              title="Total Leads"
-              value={data ? data.totalLeads.toLocaleString() : '0'}
-              icon={Users}
-              color="indigo"
-            />
-            <KPICard
-              title="Qualified Leads"
-              value={data ? data.qualifiedLeads.toLocaleString() : '0'}
-              icon={Target}
-              color="emerald"
-            />
-            <KPICard
-              title="Cost per Acquisition"
-              value={data && data.cac > 0 ? `$${data.cac.toFixed(2)}` : '$0.00'}
-              icon={DollarSign}
-              color="amber"
-            />
-            <KPICard
-              title="Conversion Rate"
-              value={data ? `${data.conversionRate}%` : '0%'}
-              icon={TrendingUp}
-              color="blue"
-            />
-          </div>
+          <motion.div
+            initial="hidden"
+            animate="visible"
+            variants={{ hidden: {}, visible: { transition: { staggerChildren: 0.07 } } }}
+            className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4"
+          >
+            {[
+              { title: 'Total Leads', value: data ? data.totalLeads.toLocaleString() : '0', icon: Users, color: 'indigo' as const },
+              { title: 'Qualified Leads', value: data ? data.qualifiedLeads.toLocaleString() : '0', icon: Target, color: 'emerald' as const },
+              { title: 'Cost per Acquisition', value: data && data.cac > 0 ? `$${data.cac.toFixed(2)}` : '$0.00', icon: DollarSign, color: 'amber' as const },
+              { title: 'Conversion Rate', value: data ? `${data.conversionRate}%` : '0%', icon: TrendingUp, color: 'blue' as const },
+            ].map((kpi) => (
+              <motion.div
+                key={kpi.title}
+                variants={{ hidden: { opacity: 0, y: 12 }, visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: [0.25, 0.4, 0.25, 1] } } }}
+              >
+                <KPICard title={kpi.title} value={kpi.value} icon={kpi.icon} color={kpi.color} />
+              </motion.div>
+            ))}
+          </motion.div>
 
           {/* Channel Breakdown + Funnel */}
           {data && (data.channelBreakdown.length > 0 || data.funnelData.some(f => f.count > 0)) && (
@@ -314,7 +309,11 @@ export default function DashboardPage() {
           )}
 
           {/* Quick Launch + Activity */}
-          <div className="grid gap-6 lg:grid-cols-2">
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.45, delay: 0.3, ease: [0.25, 0.4, 0.25, 1] }}
+            className="grid gap-6 lg:grid-cols-2">
             <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-5">
               <h3 className="mb-4 text-sm font-semibold text-zinc-200">Quick Launch</h3>
               <Link
@@ -338,7 +337,7 @@ export default function DashboardPage() {
               </Link>
             </div>
             <ActivityFeed />
-          </div>
+          </motion.div>
         </>
       )}
     </div>

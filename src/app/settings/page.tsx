@@ -5,6 +5,7 @@ import { Save, Eye, EyeOff, CheckCircle2, XCircle, Loader2, Key, Bell, Bot } fro
 import { cn } from '@/lib/utils';
 import { settings as settingsApi } from '@/lib/api';
 import { ErrorBoundary } from '@/components/layout/error-boundary';
+import { motion } from 'framer-motion';
 
 interface IntegrationField {
   label: string;
@@ -69,9 +70,18 @@ function SettingsPageInner() {
       </div>
 
       {/* Integration API Keys */}
-      <div className="space-y-6">
+      <motion.div
+        initial="hidden"
+        animate="visible"
+        variants={{ hidden: {}, visible: { transition: { staggerChildren: 0.08 } } }}
+        className="space-y-6"
+      >
         {categories.map(category => (
-          <div key={category} className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-5">
+          <motion.div
+            key={category}
+            variants={{ hidden: { opacity: 0, y: 12 }, visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: [0.25, 0.4, 0.25, 1] } } }}
+            className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-5"
+          >
             <h3 className="mb-4 flex items-center gap-2 text-sm font-semibold text-zinc-200">
               <Key className="h-4 w-4 text-indigo-400" />
               {category}
@@ -107,12 +117,17 @@ function SettingsPageInner() {
                 </div>
               ))}
             </div>
-          </div>
+          </motion.div>
         ))}
-      </div>
+      </motion.div>
 
       {/* Notifications */}
-      <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-5">
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, delay: 0.3, ease: [0.25, 0.4, 0.25, 1] }}
+        className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-5"
+      >
         <h3 className="mb-4 flex items-center gap-2 text-sm font-semibold text-zinc-200">
           <Bell className="h-4 w-4 text-indigo-400" />
           Notification Preferences
@@ -136,10 +151,15 @@ function SettingsPageInner() {
             </div>
           ))}
         </div>
-      </div>
+      </motion.div>
 
       {/* Agent Defaults */}
-      <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-5">
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, delay: 0.4, ease: [0.25, 0.4, 0.25, 1] }}
+        className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-5"
+      >
         <h3 className="mb-4 flex items-center gap-2 text-sm font-semibold text-zinc-200">
           <Bot className="h-4 w-4 text-indigo-400" />
           Agent Configuration Defaults
@@ -176,7 +196,7 @@ function SettingsPageInner() {
             </select>
           </div>
         </div>
-      </div>
+      </motion.div>
     </div>
   );
 }

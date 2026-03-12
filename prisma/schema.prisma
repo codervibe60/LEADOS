@@ -12,8 +12,8 @@ model User {
   email        String     @unique
   name         String?
   passwordHash String?
-  settings     String?    // JSON stored as string for SQLite
-  apiKeys      String?    // JSON stored as string for SQLite (encrypted)
+  settings     String?    // JSON stored as string
+  apiKeys      String?    // JSON stored as string (encrypted)
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
   pipelines    Pipeline[]

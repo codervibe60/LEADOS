@@ -8,6 +8,7 @@ import { useAppStore } from '@/lib/store';
 import { ProjectFilter } from '@/components/projects/project-filter';
 import { ErrorBoundary } from '@/components/layout/error-boundary';
 import dynamic from 'next/dynamic';
+import { motion } from 'framer-motion';
 
 const RechartsComponents = dynamic(() => import('@/components/dashboard/analytics-charts'), { ssr: false });
 
@@ -62,16 +63,41 @@ function AnalyticsPageInner() {
 
       {data && (
         <>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <KPI title="Cost Per Lead" value={`$${data.cpl}`} icon={DollarSign} color="indigo" />
-            <KPI title="CAC" value={`$${data.cac}`} icon={Target} color="amber" />
-            <KPI title="Total Leads" value={data.totalLeads.toLocaleString()} icon={Users} color="blue" />
-            <KPI title="Revenue" value={`$${data.revenue.toLocaleString()}`} icon={TrendingUp} color="emerald" />
-          </div>
+          <motion.div
+            initial="hidden"
+            animate="visible"
+            variants={{ hidden: {}, visible: { transition: { staggerChildren: 0.07 } } }}
+            className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4"
+          >
+            {[
+              { title: 'Cost Per Lead', value: `$${data.cpl}`, icon: DollarSign, color: 'indigo' },
+              { title: 'CAC', value: `$${data.cac}`, icon: Target, color: 'amber' },
+              { title: 'Total Leads', value: data.totalLeads.toLocaleString(), icon: Users, color: 'blue' },
+              { title: 'Revenue', value: `$${data.revenue.toLocaleString()}`, icon: TrendingUp, color: 'emerald' },
+            ].map((kpi) => (
+              <motion.div
+                key={kpi.title}
+                variants={{ hidden: { opacity: 0, y: 12 }, visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: [0.25, 0.4, 0.25, 1] } } }}
+              >
+                <KPI title={kpi.title} value={kpi.value} icon={kpi.icon} color={kpi.color} />
+              </motion.div>
+            ))}
+          </motion.div>
 
-          <RechartsComponents data={data} type="leados" />
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.45, delay: 0.3, ease: [0.25, 0.4, 0.25, 1] }}
+          >
+            <RechartsComponents data={data} type="leados" />
+          </motion.div>
 
-          <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-5">
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.45, delay: 0.4, ease: [0.25, 0.4, 0.25, 1] }}
+            className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-5"
+          >
             <h3 className="mb-4 text-sm font-semibold text-zinc-200">Channel Performance</h3>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -97,7 +123,7 @@ function AnalyticsPageInner() {
                 </tbody>
               </table>
             </div>
-          </div>
+          </motion.div>
         </>
       )}
     </div>

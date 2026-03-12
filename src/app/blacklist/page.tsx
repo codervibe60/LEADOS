@@ -5,6 +5,7 @@ import { ShieldBan, Plus, Trash2, Search, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store';
 import { ErrorBoundary } from '@/components/layout/error-boundary';
+import { motion, AnimatePresence } from 'framer-motion';
 
 function BlacklistPageInner() {
   const { blacklist, addToBlacklist, removeFromBlacklist, loadBlacklist } = useAppStore();
@@ -68,7 +69,15 @@ function BlacklistPageInner() {
       </div>
 
       {/* Add form */}
+      <AnimatePresence>
       {showAdd && (
+        <motion.div
+          initial={{ opacity: 0, height: 0 }}
+          animate={{ opacity: 1, height: 'auto' }}
+          exit={{ opacity: 0, height: 0 }}
+          transition={{ duration: 0.3, ease: [0.25, 0.4, 0.25, 1] }}
+          className="overflow-hidden"
+        >
         <div className="rounded-lg border border-zinc-700 bg-zinc-900 p-5 space-y-4">
           <h3 className="text-lg font-medium text-white">Add Company to Blacklist</h3>
           <div className="grid gap-4 sm:grid-cols-2">
@@ -120,7 +129,9 @@ function BlacklistPageInner() {
             </button>
           </div>
         </div>
+        </motion.div>
       )}
+      </AnimatePresence>
 
       {/* Search */}
       <div className="relative">
