@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import {
   ChevronDown,
   TrendingDown,
@@ -67,7 +67,15 @@ function getPainIcon(iconName: string) {
 
 // ─── Main Page ───────────────────────────────────────────────────────────────
 
-export default function FunnelPage() {
+export default function FunnelPageWrapper() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-zinc-950 flex items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-indigo-400" /></div>}>
+      <FunnelPage />
+    </Suspense>
+  );
+}
+
+function FunnelPage() {
   const [funnelData, setFunnelData] = useState<FunnelData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
