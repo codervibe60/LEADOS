@@ -176,6 +176,26 @@ export default function FunnelPage() {
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
+      {/* ─── Navbar ────────────────────────────────────────────────── */}
+      <nav className="sticky top-0 z-50 border-b border-zinc-800/50 bg-zinc-950/80 backdrop-blur-lg">
+        <div className="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center">
+              <span className="text-white font-bold text-sm">L</span>
+            </div>
+            <span className="text-white font-semibold text-lg tracking-tight">
+              {heroSection?.headline?.split(' ').slice(0, 3).join(' ') || 'LeadFlow'}
+            </span>
+          </div>
+          <a
+            href="#lead-form"
+            className="bg-blue-600 hover:bg-blue-500 text-white px-5 py-2 rounded-lg text-sm font-medium transition-colors"
+          >
+            {heroSection?.cta || funnelData.landingPage.cta || 'Get Started'}
+          </a>
+        </div>
+      </nav>
+
       {/* ─── Hero ────────────────────────────────────────────────── */}
       <section className="relative overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-b from-blue-950/30 via-zinc-950 to-zinc-950" />
