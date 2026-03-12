@@ -644,10 +644,10 @@ export default function LeadOSPage() {
                             key={agent.id}
                             onClick={() => setSelectedAgent(agent.id)}
                             className={cn(
-                              'group rounded-lg border transition-all cursor-pointer',
-                              status === 'done' ? 'border-emerald-500/20 bg-emerald-950/5 hover:border-emerald-500/40' :
+                              'group relative rounded-lg border transition-all cursor-pointer',
+                              status === 'done' ? 'border-emerald-500/20 bg-emerald-950/5 hover:border-emerald-500/40 hover:bg-emerald-950/10' :
                               status === 'running' ? 'border-blue-500/30 bg-blue-950/10' :
-                              status === 'error' ? 'border-red-500/30 bg-red-950/10 hover:border-red-500/40' :
+                              status === 'error' ? 'border-red-500/30 bg-red-950/10 hover:border-red-500/40 hover:bg-red-950/15' :
                               'border-zinc-800/60 bg-zinc-900/20 hover:border-indigo-500/30 hover:bg-indigo-950/5'
                             )}
                           >
@@ -750,8 +750,11 @@ export default function LeadOSPage() {
                                     <RefreshCw className="h-3 w-3" />
                                   </button>
                                 )}
-                                {/* Always-visible detail chevron */}
-                                <ChevronRight className="h-3.5 w-3.5 text-zinc-600 group-hover:text-zinc-400 transition-colors" />
+                                {/* View details indicator */}
+                                <span className="flex items-center gap-1 text-[10px] text-zinc-600 group-hover:text-indigo-400 transition-colors">
+                                  <span className="hidden group-hover:inline">Details</span>
+                                  <ChevronRight className="h-3.5 w-3.5 group-hover:translate-x-0.5 transition-transform" />
+                                </span>
                               </div>
                             </div>
 

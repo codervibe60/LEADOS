@@ -50,7 +50,7 @@ Return ONLY valid JSON (no markdown, no explanation outside JSON) with this stru
     "provider": "Calendly | Cal.com",
     "url": "string — booking link",
     "meetingType": "string — e.g. Strategy Call, Discovery Call",
-    "meetingDuration": "number — minutes",
+    "meetingDuration": "number — always 30 minutes",
     "bufferTime": "number — minutes between meetings",
     "availability": "string — availability description",
     "preCallQuestions": ["string — questions asked before booking"],

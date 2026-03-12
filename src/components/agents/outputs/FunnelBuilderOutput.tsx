@@ -103,6 +103,11 @@ interface Props {
 export function FunnelBuilderOutput({ data }: Props) {
   const funnelData: FunnelData = data?.data || data;
 
+  // Normalize meeting duration to 30 minutes
+  if (funnelData?.bookingCalendar) {
+    funnelData.bookingCalendar.meetingDuration = 30;
+  }
+
   if (!funnelData || !funnelData.landingPage) {
     return <div className="p-4 text-muted-foreground">No funnel data available</div>;
   }
@@ -153,8 +158,8 @@ export function FunnelBuilderOutput({ data }: Props) {
         />
       </div>
 
-      {/* Funnel Pages Overview */}
-      {funnelData.pages && funnelData.pages.length > 0 && (
+      {/* Funnel Pages Overview (excluding landing page — shown in Landing Page Copy) */}
+      {funnelData.pages && funnelData.pages.filter(p => p.type !== 'landing').length > 0 && (
         <div className="border border-border rounded-lg overflow-hidden">
           <div className="p-3 sm:p-4 bg-muted/30 flex items-center gap-2">
             <Globe className="w-4 h-4 text-blue-400 shrink-0" />
@@ -166,22 +171,20 @@ export function FunnelBuilderOutput({ data }: Props) {
             )}
           </div>
           <div className="p-3 sm:p-4 space-y-2">
-            {funnelData.pages.map((page, idx) => {
-              const liveUrl = page.type === 'landing' ? '/funnel'
-                : page.type === 'booking' ? '/funnel/book'
-                : page.type === 'thank-you' ? '/funnel/thank-you'
+            {funnelData.pages.filter(p => p.type !== 'landing').map((page, idx) => {
+              const baseUrl = process.env.NEXT_PUBLIC_APP_URL || (typeof window !== 'undefined' ? window.location.origin : '');
+              const liveUrl = page.type === 'booking' ? (funnelData.bookingCalendar?.url || 'https://calendly.com/codervibe60/30min')
+                : page.type === 'thank-you' ? `${baseUrl}/funnel/thank-you`
                 : null;
               const Wrapper = liveUrl ? 'a' : 'div';
               const wrapperProps = liveUrl ? { href: liveUrl, target: '_blank', rel: 'noopener noreferrer' } : {};
               return (
                 <Wrapper key={idx} {...wrapperProps} className={`flex items-center gap-3 p-2.5 sm:p-3 bg-muted/20 rounded-lg border border-border/50 ${liveUrl ? 'hover:bg-muted/40 hover:border-blue-500/30 cursor-pointer transition-colors' : ''}`}>
                   <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
-                    page.type === 'landing' ? 'bg-blue-500/10 text-blue-400' :
                     page.type === 'booking' ? 'bg-purple-500/10 text-purple-400' :
                     'bg-green-500/10 text-green-400'
                   }`}>
-                    {page.type === 'landing' ? <Globe className="w-4 h-4" /> :
-                     page.type === 'booking' ? <Calendar className="w-4 h-4" /> :
+                    {page.type === 'booking' ? <Calendar className="w-4 h-4" /> :
                      <CheckCircle2 className="w-4 h-4" />}
                   </div>
                   <div className="flex-1 min-w-0">
@@ -213,6 +216,36 @@ export function FunnelBuilderOutput({ data }: Props) {
         defaultOpen
       >
         <div className="space-y-3">
+          {/* Landing Page Link — uses deployed URL (Vercel/Netlify) */}
+          {(() => {
+            const landingPage = funnelData.pages?.find(p => p.type === 'landing');
+            const baseUrl = process.env.NEXT_PUBLIC_APP_URL || (typeof window !== 'undefined' ? window.location.origin : '');
+            const funnelUrl = `${baseUrl}/funnel`;
+            return (
+              <a
+                href={funnelUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-3 p-3 sm:p-4 bg-blue-500/5 rounded-lg border border-blue-500/20 hover:bg-blue-500/10 hover:border-blue-500/30 cursor-pointer transition-colors group"
+              >
+                <div className="w-9 h-9 rounded-lg bg-blue-500/10 text-blue-400 flex items-center justify-center shrink-0">
+                  <Globe className="w-5 h-5" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium truncate">{landingPage?.name || 'Landing Page'}</div>
+                  <div className="text-xs text-muted-foreground truncate">{funnelUrl}</div>
+                  {landingPage?.description && (
+                    <div className="text-xs text-muted-foreground mt-0.5 truncate">{landingPage.description}</div>
+                  )}
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <span className="text-xs text-blue-400 font-medium hidden sm:inline group-hover:underline">View Landing Page</span>
+                  <ExternalLink className="w-4 h-4 text-blue-400" />
+                </div>
+              </a>
+            );
+          })()}
+
           {/* Hero Preview */}
           <div className="p-3 sm:p-4 bg-gradient-to-r from-blue-500/5 to-purple-500/5 rounded-lg border border-blue-500/20">
             <div className="text-xs uppercase tracking-wider text-blue-400 mb-1">Hero Headline</div>
@@ -288,37 +321,81 @@ export function FunnelBuilderOutput({ data }: Props) {
         </div>
       </CollapsibleSection>
 
-      {/* Booking Calendar */}
+      {/* Booking Calendar — Strategy Call */}
       <CollapsibleSection
         icon={<Calendar className="w-4 h-4 text-purple-400" />}
-        title="Booking Calendar"
-        subtitle={`${funnelData.bookingCalendar.provider} — ${funnelData.bookingCalendar.meetingDuration}min`}
+        title="Strategy Call Booking"
+        subtitle={`${funnelData.bookingCalendar.meetingDuration}min · ${funnelData.bookingCalendar.provider}`}
       >
         <div className="space-y-3">
+          {/* Book a Call CTA — links directly to Calendly */}
+          <a
+            href={funnelData.bookingCalendar.url || 'https://calendly.com/codervibe60/30min'}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-3 p-3 sm:p-4 bg-gradient-to-r from-purple-500/5 to-blue-500/5 rounded-lg border border-purple-500/20 hover:from-purple-500/10 hover:to-blue-500/10 hover:border-purple-500/30 cursor-pointer transition-all group"
+          >
+            <div className="w-10 h-10 rounded-lg bg-purple-500/10 text-purple-400 flex items-center justify-center shrink-0">
+              <Calendar className="w-5 h-5" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-semibold truncate">
+                {funnelData.bookingCalendar.meetingType || 'Strategy Call'}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {funnelData.bookingCalendar.meetingDuration} min · Free · No commitment
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <span className="text-xs text-purple-400 font-medium hidden sm:inline group-hover:underline">Book Now</span>
+              <ExternalLink className="w-4 h-4 text-purple-400" />
+            </div>
+          </a>
+
+          {/* Call Details Grid */}
           <div className="grid grid-cols-2 gap-2 sm:gap-3">
             <InfoCard label="Provider" value={funnelData.bookingCalendar.provider} />
-            <InfoCard label="Meeting Type" value={funnelData.bookingCalendar.meetingType || 'Strategy Call'} />
             <InfoCard label="Duration" value={`${funnelData.bookingCalendar.meetingDuration} minutes`} />
             <InfoCard label="Buffer Time" value={`${funnelData.bookingCalendar.bufferTime} min between calls`} />
+            <InfoCard label="Availability" value={funnelData.bookingCalendar.availability} />
           </div>
 
-          <div className="p-2.5 bg-muted/10 rounded-lg border border-border/50">
-            <div className="text-xs text-muted-foreground mb-1">Availability</div>
-            <div className="text-xs sm:text-sm break-words">{funnelData.bookingCalendar.availability}</div>
-          </div>
+          {/* Calendly / Provider URL */}
+          {funnelData.bookingCalendar.url && (
+            <div className="p-2.5 bg-purple-500/5 rounded-lg border border-purple-500/20">
+              <div className="text-xs text-muted-foreground mb-1">Calendar Provider URL</div>
+              <div className="flex items-center gap-2">
+                <ExternalLink className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                <a
+                  href={funnelData.bookingCalendar.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs sm:text-sm text-purple-300 hover:text-purple-200 truncate transition-colors"
+                >
+                  {funnelData.bookingCalendar.url}
+                </a>
+              </div>
+            </div>
+          )}
 
-          <div className="flex items-center gap-2 p-2.5 bg-purple-500/5 rounded-lg border border-purple-500/20">
-            <ExternalLink className="w-3.5 h-3.5 text-purple-400 shrink-0" />
-            <span className="text-xs sm:text-sm text-purple-300 truncate">{funnelData.bookingCalendar.url}</span>
-          </div>
-
-          {funnelData.bookingCalendar.preCallQuestions && funnelData.bookingCalendar.preCallQuestions.length > 0 && (
+          {/* Confirmation Redirect */}
+          {funnelData.bookingCalendar.confirmationRedirect && (
             <div className="p-2.5 bg-muted/10 rounded-lg border border-border/50">
-              <div className="text-xs text-muted-foreground mb-1.5">Pre-Call Questions</div>
-              <ul className="space-y-1">
+              <div className="text-xs text-muted-foreground mb-1">After Booking Redirect</div>
+              <div className="text-xs sm:text-sm break-words">{funnelData.bookingCalendar.confirmationRedirect}</div>
+            </div>
+          )}
+
+          {/* Pre-Call Questions */}
+          {funnelData.bookingCalendar.preCallQuestions && funnelData.bookingCalendar.preCallQuestions.length > 0 && (
+            <div className="p-2.5 sm:p-3 bg-muted/10 rounded-lg border border-border/50">
+              <div className="text-xs text-muted-foreground mb-2">What We&apos;ll Cover on the Call</div>
+              <ul className="space-y-1.5">
                 {funnelData.bookingCalendar.preCallQuestions.map((q, idx) => (
-                  <li key={idx} className="text-xs sm:text-sm flex items-start gap-2">
-                    <span className="text-purple-400 shrink-0">{idx + 1}.</span>
+                  <li key={idx} className="flex items-start gap-2.5 text-xs sm:text-sm">
+                    <span className="w-5 h-5 rounded-full bg-purple-500/10 text-purple-400 flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">
+                      {idx + 1}
+                    </span>
                     <span>{q}</span>
                   </li>
                 ))}

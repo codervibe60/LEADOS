@@ -13,6 +13,7 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const isLandingPage = pathname === '/';
   const isAuthPage = pathname === '/login' || pathname === '/signup';
+  const isFunnelPage = pathname.startsWith('/funnel');
   const { updateAgentStatus, updatePipelineStatus, addActivity, setCurrentAgentIndex, loadProjects, loadBlacklist } = useAppStore();
 
   // Load global state on mount
@@ -96,7 +97,7 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
     };
   }, [updateAgentStatus, updatePipelineStatus, addActivity, setCurrentAgentIndex]);
 
-  if (isLandingPage || isAuthPage) {
+  if (isLandingPage || isAuthPage || isFunnelPage) {
     return <AuthGuard>{children}</AuthGuard>;
   }
 
