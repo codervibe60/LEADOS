@@ -77,7 +77,7 @@ export async function searchProspects(params: ApolloPersonSearchParams): Promise
     body.organization_industry_tag_ids = params.industries;
   }
 
-  const data = await apolloFetch('/mixed_people/search', body);
+  const data = await apolloFetch('/mixed_people/api_search', body);
 
   return (data.people || []).map((p: any) => ({
     firstName: p.first_name || '',
