@@ -1,8 +1,11 @@
-import { prisma } from '@/lib/prisma';
-
 export interface BlacklistMatch {
   blacklisted: boolean;
   match?: { companyName: string; domain?: string | null; reason?: string | null };
+}
+
+async function getBlacklistEntries(): Promise<any[]> {
+  const { prisma } = await import('@/lib/prisma');
+  return prisma.blacklist.findMany();
 }
 
 /**
@@ -14,7 +17,7 @@ export async function isBlacklisted(company?: string, domain?: string): Promise<
 
   if (!companyLower && !domainLower) return { blacklisted: false };
 
-  const entries = await prisma.blacklist.findMany();
+  const entries = await getBlacklistEntries();
 
   for (const entry of entries) {
     const entryCompany = entry.companyName.toLowerCase();
@@ -40,7 +43,7 @@ export async function filterBlacklisted<T extends { company?: string; email?: st
 ): Promise<{ allowed: T[]; blocked: T[] }> {
   if (items.length === 0) return { allowed: [], blocked: [] };
 
-  const entries = await prisma.blacklist.findMany();
+  const entries = await getBlacklistEntries();
   if (entries.length === 0) return { allowed: items, blocked: [] };
 
   const allowed: T[] = [];
