@@ -16,6 +16,8 @@ export interface AgentOutput {
   error?: string;
 }
 
+const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
+
 export abstract class BaseAgent {
   id: string;
   name: string;
@@ -47,13 +49,37 @@ export abstract class BaseAgent {
     return this.logs;
   }
 
+  /** Call LLM — tries Anthropic first, falls back to Gemini if Anthropic fails */
   protected async callClaude(systemPrompt: string, userMessage: string, maxRetries = 3): Promise<string> {
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) {
-      await this.log('mock_mode', { reason: 'No ANTHROPIC_API_KEY set' });
-      throw new Error('No ANTHROPIC_API_KEY configured — using mock fallback');
+    // Try Anthropic first
+    const anthropicKey = process.env.ANTHROPIC_API_KEY;
+    if (anthropicKey) {
+      try {
+        const result = await this.callAnthropic(systemPrompt, userMessage, anthropicKey, maxRetries);
+        return result;
+      } catch (error: any) {
+        await this.log('anthropic_failed', { error: error.message });
+        // Fall through to Gemini
+      }
     }
 
+    // Fallback to Gemini
+    const geminiKey = process.env.GEMINI_API_KEY;
+    if (geminiKey) {
+      try {
+        await this.log('gemini_fallback', { reason: 'Anthropic unavailable, using Gemini' });
+        const result = await this.callGemini(systemPrompt, userMessage, geminiKey, maxRetries);
+        return result;
+      } catch (error: any) {
+        await this.log('gemini_failed', { error: error.message });
+        throw new Error(`Both Anthropic and Gemini failed. Anthropic: no credits. Gemini: ${error.message}`);
+      }
+    }
+
+    throw new Error('No LLM API key configured — set ANTHROPIC_API_KEY or GEMINI_API_KEY');
+  }
+
+  private async callAnthropic(systemPrompt: string, userMessage: string, apiKey: string, maxRetries: number): Promise<string> {
     let lastError: Error | null = null;
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -79,21 +105,69 @@ export abstract class BaseAgent {
         return text;
       } catch (error: any) {
         lastError = error;
-        await this.log('llm_retry', { attempt, maxRetries, error: error.message });
+        await this.log('anthropic_retry', { attempt, maxRetries, error: error.message });
 
-        // Don't retry on auth errors
-        if (error.status === 401 || error.status === 403) {
+        // Don't retry on auth/billing errors — fail fast to Gemini
+        if (error.status === 401 || error.status === 403 || error.message?.includes('credit balance')) {
           throw error;
         }
 
-        // Exponential backoff: 1s, 2s, 4s
         if (attempt < maxRetries) {
           await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, attempt - 1)));
         }
       }
     }
 
-    throw lastError || new Error('LLM call failed after retries');
+    throw lastError || new Error('Anthropic call failed after retries');
+  }
+
+  private async callGemini(systemPrompt: string, userMessage: string, apiKey: string, maxRetries: number): Promise<string> {
+    let lastError: Error | null = null;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const res = await fetch(`${GEMINI_BASE}/gemini-2.0-flash:generateContent?key=${apiKey}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            systemInstruction: { parts: [{ text: systemPrompt }] },
+            contents: [{ parts: [{ text: userMessage }] }],
+            generationConfig: {
+              maxOutputTokens: 8192,
+              temperature: 0.7,
+            },
+          }),
+        });
+
+        if (!res.ok) {
+          const errText = await res.text();
+          throw new Error(`Gemini API error ${res.status}: ${errText}`);
+        }
+
+        const data = await res.json();
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+        if (!text || text.trim().length === 0) {
+          throw new Error('Empty response from Gemini');
+        }
+
+        return text;
+      } catch (error: any) {
+        lastError = error;
+        await this.log('gemini_retry', { attempt, maxRetries, error: error.message });
+
+        // Don't retry on quota errors
+        if (error.message?.includes('429') || error.message?.includes('quota')) {
+          throw error;
+        }
+
+        if (attempt < maxRetries) {
+          await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, attempt - 1)));
+        }
+      }
+    }
+
+    throw lastError || new Error('Gemini call failed after retries');
   }
 
   protected parseLLMJson<T>(text: string): T {
