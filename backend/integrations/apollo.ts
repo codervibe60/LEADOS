@@ -52,8 +52,9 @@ async function apolloFetch(endpoint: string, body: Record<string, any>): Promise
     headers: {
       'Content-Type': 'application/json',
       'Cache-Control': 'no-cache',
+      'X-Api-Key': apiKey,
     },
-    body: JSON.stringify({ ...body, api_key: apiKey }),
+    body: JSON.stringify(body),
   });
 
   if (!res.ok) {
