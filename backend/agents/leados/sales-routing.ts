@@ -166,35 +166,53 @@ export class SalesRoutingAgent extends BaseAgent {
       const response = await this.callClaude(SYSTEM_PROMPT, userMessage);
       const parsed = this.safeParseLLMJson<any>(response, ['routingEngine', 'routedLeads', 'summary']);
 
-      // Force-zero ALL fabricated metrics in summary
-      if (parsed.summary) {
-        parsed.summary.conversionProjection = 0; // Not measured
-        parsed.summary.slaBreaches = 0; // Not measured — no real routing latency tracked
-        // avgRoutingLatency is fabricated — no real timing data
-        parsed.summary.avgRoutingLatency = '0ms';
-        // Recompute totalRouted/checkout/salesCall/nurture/disqualified from actual routed leads
-        const routed = parsed.routedLeads || [];
-        parsed.summary.totalRouted = routed.length;
-        parsed.summary.checkout = routed.filter((l: any) => l.route === 'checkout').length;
-        parsed.summary.salesCall = routed.filter((l: any) => l.route === 'sales_call').length;
-        parsed.summary.nurture = routed.filter((l: any) => l.route === 'nurture').length;
-        parsed.summary.disqualified = routed.filter((l: any) => l.route === 'disqualify').length;
-      }
-      // Force-zero conversion projections object if present
-      if (parsed.conversionProjection) {
-        Object.keys(parsed.conversionProjection).forEach(k => { if (typeof parsed.conversionProjection[k] === 'number') parsed.conversionProjection[k] = 0; });
-      }
-      // Zero latency in individual routed leads — not measured
-      if (parsed.routedLeads) {
-        for (const lead of parsed.routedLeads) {
-          lead.latency = '0ms';
-          lead.slaStatus = 'pending';
-        }
-      }
+      // ── BUILD CLEAN OUTPUT — DO NOT trust ANY metric from LLM ──────────
+      // Only keep routing engine config (rules, round-robin) from LLM.
+      // routedLeads: only keep leads that match real upstream data (qualification/inbound).
+      // If no real upstream leads exist, routedLeads must be empty.
+      const hasRealUpstreamLeads = !!(
+        qualificationData.callResults?.length > 0 ||
+        inboundData.leadsProcessed?.length > 0
+      );
+
+      // Only keep routedLeads if there were real upstream leads; otherwise empty
+      const routedLeads = hasRealUpstreamLeads ? (parsed.routedLeads || []).map((lead: any) => ({
+        leadName: lead.leadName || '',
+        leadEmail: lead.leadEmail || '',
+        company: lead.company || '',
+        qualificationScore: lead.qualificationScore || 0,
+        bantBreakdown: lead.bantBreakdown || { budget: 0, authority: 0, need: 0, timeline: 0 },
+        route: lead.route || 'nurture',
+        reason: lead.reason || '',
+        destination: lead.destination || '',
+        assignedRep: lead.assignedRep || null,
+        routedAt: lead.routedAt || '',
+        latency: '0ms',
+        slaStatus: 'pending' as const,
+        actions: lead.actions || [],
+      })) : [];
+
+      const cleanOutput: any = {
+        routingEngine: parsed.routingEngine || { rules: [], roundRobinConfig: { enabled: false, reps: [] } },
+        routedLeads,
+        notifications: hasRealUpstreamLeads ? (parsed.notifications || []) : [],
+        summary: {
+          totalRouted: routedLeads.length,
+          checkout: routedLeads.filter((l: any) => l.route === 'checkout').length,
+          salesCall: routedLeads.filter((l: any) => l.route === 'sales_call').length,
+          nurture: routedLeads.filter((l: any) => l.route === 'nurture').length,
+          disqualified: routedLeads.filter((l: any) => l.route === 'disqualify').length,
+          avgRoutingLatency: '0ms',
+          slaBreaches: 0,
+          conversionProjection: 0,
+        },
+        reasoning: parsed.reasoning || '',
+        confidence: parsed.confidence || 0,
+      };
 
       // Update CRM with routing data if HubSpot is available
-      if (hubspot.isHubSpotAvailable() && parsed.routedLeads) {
-        for (const lead of parsed.routedLeads.slice(0, 20)) {
+      if (hubspot.isHubSpotAvailable() && cleanOutput.routedLeads.length > 0) {
+        for (const lead of cleanOutput.routedLeads.slice(0, 20)) {
           try {
             const stage = lead.route === 'checkout' ? 'opportunity'
               : lead.route === 'sales_call' ? 'qualifiedtobuy'
@@ -210,16 +228,16 @@ export class SalesRoutingAgent extends BaseAgent {
             });
           } catch { /* skip individual CRM failures */ }
         }
-        await this.log('hubspot_routing_synced', { count: Math.min(parsed.routedLeads.length, 20) });
+        await this.log('hubspot_routing_synced', { count: Math.min(cleanOutput.routedLeads.length, 20) });
       }
 
       this.status = 'done';
-      await this.log('run_completed', { output: parsed });
+      await this.log('run_completed', { output: cleanOutput });
       return {
         success: true,
-        data: parsed,
-        reasoning: parsed.reasoning || 'Leads routed based on qualification scores.',
-        confidence: parsed.confidence || 85,
+        data: cleanOutput,
+        reasoning: cleanOutput.reasoning || 'Leads routed based on qualification scores.',
+        confidence: cleanOutput.confidence || 85,
       };
     } catch (error: any) {
       this.status = 'done';

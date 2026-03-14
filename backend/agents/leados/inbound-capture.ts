@@ -292,61 +292,21 @@ export class InboundCaptureAgent extends BaseAgent {
       const response = await this.callClaude(SYSTEM_PROMPT, userMessage);
       const parsed = this.safeParseLLMJson<any>(response, ['crmSetup', 'scoringModel', 'segmentation']);
 
-      // Force-zero ALL LLM-fabricated numeric metrics in summary
-      // Only real DB data counts
+      // ── BUILD CLEAN OUTPUT — DO NOT trust ANY metric from LLM ──────────
       const realLeadCount = dbLeads.length;
-      if (parsed.summary) {
-        parsed.summary.totalLeadsCaptured = realLeadCount;
-        parsed.summary.totalLeadsProcessed = realLeadCount;
-        parsed.summary.totalEnriched = realEnrichments.size > 0 ? realEnrichments.size : 0;
-        parsed.summary.avgLeadScore = 0; // Will be computed from real scores below
-        parsed.summary.hotLeads = 0;
-        parsed.summary.warmLeads = 0;
-        parsed.summary.coldLeads = 0;
-        parsed.summary.duplicatesRemoved = 0; // No real dedup was performed
-      }
 
-      // Zero enrichment averageCompletenessScore — LLM fabrication
-      if (parsed.enrichment?.averageCompletenessScore !== undefined) {
-        parsed.enrichment.averageCompletenessScore = realEnrichments.size > 0 ? parsed.enrichment.averageCompletenessScore : 0;
-      }
-
-      // Zero channelBreakdown counts — must come from real data
-      if (parsed.channelBreakdown) {
-        for (const ch of parsed.channelBreakdown) {
-          ch.leadsCount = 0;
-          ch.avgScore = 0;
-        }
-      }
-
-      // Zero segmentation segment counts — LLM cannot know real counts
-      if (parsed.segmentation?.segments) {
-        for (const seg of parsed.segmentation.segments) {
-          seg.count = 0;
-        }
-      }
-
-      // If we have real DB leads, recompute summary from actual data
+      // Only keep leadsProcessed if they match real DB leads; otherwise empty
+      let leadsProcessed: any[] = [];
       if (realLeadCount > 0 && parsed.leadsProcessed?.length > 0) {
-        let hot = 0, warm = 0, cold = 0, totalScore = 0;
-        for (const lead of parsed.leadsProcessed) {
-          const score = lead.score || 0;
-          totalScore += score;
-          if (score >= 80) hot++;
-          else if (score >= 40) warm++;
-          else cold++;
-        }
-        if (parsed.summary) {
-          parsed.summary.avgLeadScore = Math.round(totalScore / parsed.leadsProcessed.length);
-          parsed.summary.hotLeads = hot;
-          parsed.summary.warmLeads = warm;
-          parsed.summary.coldLeads = cold;
-        }
-      }
+        // Keep only leads that have a matching DB record
+        leadsProcessed = parsed.leadsProcessed.filter((lead: any) => {
+          return dbLeads.some((d: any) =>
+            d.email === lead.email || (d.name && d.name.toLowerCase() === (lead.name || '').toLowerCase())
+          );
+        });
 
-      // Merge DB lead data (phone, source, etc.) back into LLM output — LLM often drops fields
-      if (dbLeads.length > 0 && parsed.leadsProcessed) {
-        for (const lead of parsed.leadsProcessed) {
+        // Merge DB lead data back in — LLM often drops fields
+        for (const lead of leadsProcessed) {
           const dbLead = dbLeads.find((d: any) =>
             d.email === lead.email || (d.name && d.name.toLowerCase() === (lead.name || '').toLowerCase())
           );
@@ -356,36 +316,32 @@ export class InboundCaptureAgent extends BaseAgent {
             if (!lead.channel && dbLead.channel) lead.channel = dbLead.channel;
           }
         }
-      }
 
-      // Merge real enrichment data into LLM output leads
-      if (realEnrichments.size > 0 && parsed.leadsProcessed) {
-        for (const lead of parsed.leadsProcessed) {
-          const enriched = realEnrichments.get(lead.email);
-          const domain = lead.email?.split('@')[1];
-          const companyData = domain ? realEnrichments.get(`domain:${domain}`) : null;
-          if (enriched || companyData) {
-            lead.enrichedData = {
-              ...lead.enrichedData,
-              ...(enriched || {}),
-              ...(companyData || {}),
-            };
-            lead.enrichmentStatus = 'complete';
+        // Merge real enrichment data
+        if (realEnrichments.size > 0) {
+          for (const lead of leadsProcessed) {
+            const enriched = realEnrichments.get(lead.email);
+            const domain = lead.email?.split('@')[1];
+            const companyData = domain ? realEnrichments.get(`domain:${domain}`) : null;
+            if (enriched || companyData) {
+              lead.enrichedData = { ...(enriched || {}), ...(companyData || {}) };
+              lead.enrichmentStatus = 'complete';
+            }
           }
         }
       }
 
-      // Filter blacklisted companies from processed leads
-      if (parsed.leadsProcessed && parsed.leadsProcessed.length > 0) {
+      // Filter blacklisted companies
+      let blacklistFiltered = 0;
+      if (leadsProcessed.length > 0) {
         try {
-          const { allowed, blocked } = await filterBlacklisted(parsed.leadsProcessed);
+          const { blocked } = await filterBlacklisted(leadsProcessed);
           if (blocked.length > 0) {
             await this.log('blacklist_filtered', {
               removed: blocked.length,
               companies: blocked.map((b: any) => b.company),
             });
-            // Mark blocked leads as blacklisted in output (don't remove, just flag)
-            for (const lead of parsed.leadsProcessed) {
+            for (const lead of leadsProcessed) {
               const isBlocked = blocked.some((b: any) => b.email === lead.email || b.company === lead.company);
               if (isBlocked) {
                 lead.blacklisted = true;
@@ -394,16 +350,62 @@ export class InboundCaptureAgent extends BaseAgent {
                 lead.score = 0;
               }
             }
-            parsed.blacklistFiltered = blocked.length;
+            blacklistFiltered = blocked.length;
           }
         } catch (err: any) {
           await this.log('blacklist_check_error', { error: err.message });
         }
       }
 
+      // Compute summary from real processed leads
+      let hot = 0, warm = 0, cold = 0, totalScore = 0;
+      for (const lead of leadsProcessed) {
+        const score = lead.score || 0;
+        totalScore += score;
+        if (score >= 80) hot++;
+        else if (score >= 40) warm++;
+        else cold++;
+      }
+
+      // Zero segmentation segment counts
+      const segments = (parsed.segmentation?.segments || []).map((seg: any) => ({ ...seg, count: 0 }));
+
+      // Zero channelBreakdown counts
+      const channelBreakdown = (parsed.channelBreakdown || []).map((ch: any) => ({
+        ...ch,
+        leadsCount: 0,
+        avgScore: 0,
+      }));
+
+      const cleanOutput: any = {
+        crmSetup: parsed.crmSetup || {},
+        scoringModel: parsed.scoringModel || {},
+        enrichment: {
+          sources: parsed.enrichment?.sources || [],
+          fieldsEnriched: parsed.enrichment?.fieldsEnriched || [],
+          averageCompletenessScore: 0,
+        },
+        segmentation: { segments },
+        leadsProcessed,
+        channelBreakdown,
+        summary: {
+          totalLeadsCaptured: realLeadCount,
+          totalLeadsProcessed: realLeadCount,
+          totalEnriched: realEnrichments.size > 0 ? realEnrichments.size : 0,
+          avgLeadScore: leadsProcessed.length > 0 ? Math.round(totalScore / leadsProcessed.length) : 0,
+          hotLeads: hot,
+          warmLeads: warm,
+          coldLeads: cold,
+          duplicatesRemoved: 0,
+        },
+        blacklistFiltered,
+        reasoning: parsed.reasoning || '',
+        confidence: parsed.confidence || 0,
+      };
+
       // Push scored leads to real HubSpot (skip blacklisted)
-      if (hubspot.isHubSpotAvailable() && parsed.leadsProcessed) {
-        const leadsToSync = parsed.leadsProcessed.filter((l: any) => !l.blacklisted).slice(0, 20);
+      if (hubspot.isHubSpotAvailable() && cleanOutput.leadsProcessed.length > 0) {
+        const leadsToSync = cleanOutput.leadsProcessed.filter((l: any) => !l.blacklisted).slice(0, 20);
         for (const lead of leadsToSync) {
           try {
             await hubspot.upsertContact({
@@ -423,12 +425,12 @@ export class InboundCaptureAgent extends BaseAgent {
       }
 
       this.status = 'done';
-      await this.log('run_completed', { output: parsed });
+      await this.log('run_completed', { output: cleanOutput });
       return {
         success: true,
-        data: parsed,
-        reasoning: parsed.reasoning || 'Inbound lead capture system configured and leads processed.',
-        confidence: parsed.confidence || 85,
+        data: cleanOutput,
+        reasoning: cleanOutput.reasoning || 'Inbound lead capture system configured and leads processed.',
+        confidence: cleanOutput.confidence || 85,
       };
     } catch (error: any) {
       this.status = 'done';

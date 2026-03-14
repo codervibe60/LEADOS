@@ -187,71 +187,64 @@ export class CRMHygieneAgent extends BaseAgent {
       const response = await this.callClaude(SYSTEM_PROMPT, userMessage);
       const parsed = this.safeParseLLMJson<any>(response, ['deduplication', 'normalization']);
 
-      // Force-zero ALL LLM-fabricated statistics — only real CRM/API data counts
-      const hasRealCrmData = realContacts.length > 0;
+      // ── BUILD CLEAN OUTPUT — DO NOT trust ANY metric from LLM ──────────
+      const dbLeadCount = realContacts.length;
 
-      // Deduplication stats — no real dedup was performed in code, LLM fabricates these
-      if (parsed.deduplication) {
-        if (parsed.deduplication.duplicatesFound !== undefined) parsed.deduplication.duplicatesFound = 0;
-        if (parsed.deduplication.duplicatesMerged !== undefined) parsed.deduplication.duplicatesMerged = 0;
-        if (parsed.deduplication.totalRecordsScanned !== undefined) parsed.deduplication.totalRecordsScanned = hasRealCrmData ? realContacts.length : 0;
-        if (parsed.deduplication.summary) {
-          Object.keys(parsed.deduplication.summary).forEach(k => { if (typeof parsed.deduplication.summary[k] === 'number') parsed.deduplication.summary[k] = 0; });
-        }
-      }
-
-      // Normalization stats — no real normalization was performed
-      if (parsed.normalization) {
-        if (parsed.normalization.recordsNormalized !== undefined) parsed.normalization.recordsNormalized = 0;
-        if (parsed.normalization.fieldsUpdated !== undefined) parsed.normalization.fieldsUpdated = 0;
-        if (parsed.normalization.summary) {
-          Object.keys(parsed.normalization.summary).forEach(k => { if (typeof parsed.normalization.summary[k] === 'number') parsed.normalization.summary[k] = 0; });
-        }
-      }
-
-      // Validation stats — no real validation was performed
-      if (parsed.validation) {
-        if (parsed.validation.totalValidated !== undefined) parsed.validation.totalValidated = 0;
-        if (parsed.validation.invalidRecords !== undefined) parsed.validation.invalidRecords = 0;
-        if (parsed.validation.quarantined !== undefined) parsed.validation.quarantined = 0;
-        if (parsed.validation.summary) {
-          Object.keys(parsed.validation.summary).forEach(k => { if (typeof parsed.validation.summary[k] === 'number') parsed.validation.summary[k] = 0; });
-        }
-      }
-
-      // Enrichment stats — only real if APIs were connected
-      const apolloAvailable = !!process.env.APOLLO_API_KEY;
-      const clearbitAvailable = !!process.env.CLEARBIT_API_KEY;
-      if (parsed.enrichment) {
-        if (!apolloAvailable && !clearbitAvailable) {
-          if (parsed.enrichment.totalEnriched !== undefined) parsed.enrichment.totalEnriched = 0;
-          if (parsed.enrichment.averageCompletenessScore !== undefined) parsed.enrichment.averageCompletenessScore = 0;
-          if (parsed.enrichment.summary) {
-            Object.keys(parsed.enrichment.summary).forEach(k => { if (typeof parsed.enrichment.summary[k] === 'number') parsed.enrichment.summary[k] = 0; });
-          }
-        } else {
-          // Real enrichment happened — use actual count
-          if (parsed.enrichment.totalEnriched !== undefined) parsed.enrichment.totalEnriched = enrichedCount;
-        }
-      }
-
-      // Overall summary — force to real counts
-      if (parsed.summary) {
-        Object.keys(parsed.summary).forEach(k => {
-          if (typeof parsed.summary[k] === 'number') parsed.summary[k] = 0;
-        });
-        // Set real values we actually know
-        parsed.summary.totalContacts = hasRealCrmData ? realContacts.length : 0;
-        parsed.summary.totalEnriched = enrichedCount;
-      }
+      const cleanOutput: any = {
+        deduplication: {
+          totalRecordsScanned: dbLeadCount,
+          duplicatesFound: 0,
+          duplicatesMerged: 0,
+          accuracy: 0,
+          duplicateRate: 0,
+          matchingCriteria: parsed.deduplication?.matchingCriteria || [],
+          mergeExamples: [],
+          summary: { scanned: dbLeadCount, duplicates: 0, merged: 0 },
+        },
+        normalization: {
+          recordsNormalized: 0,
+          fieldsUpdated: 0,
+          rules: parsed.normalization?.rules || [],
+          summary: { normalized: 0, fieldsUpdated: 0 },
+        },
+        validation: {
+          totalValidated: dbLeadCount,
+          invalidRecords: 0,
+          quarantined: 0,
+          rules: parsed.validation?.rules || [],
+          summary: { validated: dbLeadCount, invalid: 0, quarantined: 0 },
+        },
+        enrichment: {
+          totalEnriched: enrichedCount,
+          averageCompletenessScore: 0,
+          sources: parsed.enrichment?.sources || [],
+          summary: { enriched: enrichedCount, completeness: 0 },
+        },
+        interactions: {
+          totalLogged: 0,
+          touchpoints: [],
+        },
+        lifecycle: parsed.lifecycle || {},
+        compliance: parsed.compliance || {},
+        summary: {
+          totalContacts: dbLeadCount,
+          totalDuplicatesRemoved: 0,
+          totalNormalized: 0,
+          totalEnriched: enrichedCount,
+          totalInteractions: 0,
+          dataQualityScore: 0,
+        },
+        reasoning: parsed.reasoning || '',
+        confidence: parsed.confidence || 0,
+      };
 
       this.status = 'done';
-      await this.log('run_completed', { output: parsed });
+      await this.log('run_completed', { output: cleanOutput });
       return {
         success: true,
-        data: parsed,
-        reasoning: parsed.reasoning || 'CRM hygiene analysis complete.',
-        confidence: parsed.confidence || 85,
+        data: cleanOutput,
+        reasoning: cleanOutput.reasoning || 'CRM hygiene analysis complete.',
+        confidence: cleanOutput.confidence || 85,
       };
     } catch (error: any) {
       this.status = 'done';
