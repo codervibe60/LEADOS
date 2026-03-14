@@ -219,37 +219,32 @@ export class TrackingAttributionAgent extends BaseAgent {
       const response = await this.callClaude(SYSTEM_PROMPT, userMessage);
       const parsed = this.safeParseLLMJson<any>(response, ['trackingSetup', 'attributionModel']);
 
-      // Force-zero all attribution metrics — only real API data allowed
-      const hasRealData = realTraffic.length > 0 || realConversions.length > 0 || realGoogleCampaigns.length > 0 || realMetaCampaigns.length > 0;
-      if (parsed.summary) {
-        if (!hasRealData) {
-          Object.keys(parsed.summary).forEach(k => { if (typeof parsed.summary[k] === 'number') parsed.summary[k] = 0; });
-        }
-      }
-      if (parsed.channelAttribution) {
-        if (!hasRealData) {
-          parsed.channelAttribution = parsed.channelAttribution.map((ch: any) => ({
-            ...ch, leadsAttributed: 0, leads: 0, conversions: 0, spend: 0, revenue: 0, roas: 0, cpl: 0,
-            costPerLead: 0, conversionRate: 0, firstTouchCredit: 0, lastTouchCredit: 0, assistedConversions: 0,
-          }));
-        }
-      }
-      if (parsed.leadJourneys) {
-        if (!hasRealData) {
-          parsed.leadJourneys = []; // No real journey data without analytics
-        }
-      }
-      // Zero any top-level fabricated metrics
-      if (parsed.totalEventsTracked !== undefined) parsed.totalEventsTracked = hasRealData ? parsed.totalEventsTracked : 0;
-      if (parsed.overallROAS !== undefined) parsed.overallROAS = hasRealData ? parsed.overallROAS : 0;
+      // ── BUILD CLEAN OUTPUT — DO NOT trust ANY metric from LLM ──────────
+      const cleanOutput: any = {
+        trackingSetup: parsed.trackingSetup || {},
+        attributionModel: parsed.attributionModel || {},
+        attributionWindows: parsed.attributionWindows || {},
+        dataLayerEvents: parsed.dataLayerEvents || [],
+        utmStrategy: parsed.utmStrategy || {},
+        validationChecklist: parsed.validationChecklist || [],
+        // ALL metrics zeroed — no real analytics data exists
+        summary: { totalEventsTracked: 0, totalLeadsAttributed: 0, avgTouchpoints: 0, avgDaysToConvert: 0, overallROAS: 0, trackingCoverage: 0 },
+        channelAttribution: [],
+        leadJourneys: [],
+        totalEventsTracked: 0,
+        overallROAS: 0,
+        coverage: 0,
+        reasoning: parsed.reasoning || '',
+        confidence: parsed.confidence || 0,
+      };
 
       this.status = 'done';
-      await this.log('run_completed', { output: parsed });
+      await this.log('run_completed', { output: cleanOutput });
       return {
         success: true,
-        data: parsed,
-        reasoning: parsed.reasoning || 'Tracking and attribution infrastructure configured.',
-        confidence: parsed.confidence || 85,
+        data: cleanOutput,
+        reasoning: cleanOutput.reasoning || 'Tracking and attribution infrastructure configured.',
+        confidence: cleanOutput.confidence || 85,
       };
     } catch (error: any) {
       this.status = 'done';

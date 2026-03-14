@@ -187,70 +187,64 @@ export class CRMHygieneAgent extends BaseAgent {
       const response = await this.callClaude(SYSTEM_PROMPT, userMessage);
       const parsed = this.safeParseLLMJson<any>(response, ['deduplication', 'normalization']);
 
-      // FORCE-REPLACE all LLM statistics with real DB data
-      // The LLM fabricates numbers — we cannot trust any numeric field it returns
+      // ── BUILD CLEAN OUTPUT — DO NOT trust ANY metric from LLM ──────────
       const dbLeadCount = realContacts.length;
 
-      // Replace deduplication entirely
-      parsed.deduplication = {
-        totalRecordsScanned: dbLeadCount,
-        duplicatesFound: 0,
-        duplicatesMerged: 0,
-        accuracy: 0,
-        duplicateRate: 0,
-        matchingCriteria: parsed.deduplication?.matchingCriteria || [],
-        mergeExamples: [],
-        summary: { scanned: dbLeadCount, duplicates: 0, merged: 0 },
-      };
-
-      // Replace normalization entirely
-      parsed.normalization = {
-        recordsNormalized: 0,
-        fieldsUpdated: 0,
-        rules: parsed.normalization?.rules || [],
-        summary: { normalized: 0, fieldsUpdated: 0 },
-      };
-
-      // Replace validation entirely
-      parsed.validation = {
-        totalValidated: dbLeadCount,
-        invalidRecords: 0,
-        quarantined: 0,
-        rules: parsed.validation?.rules || [],
-        summary: { validated: dbLeadCount, invalid: 0, quarantined: 0 },
-      };
-
-      // Replace enrichment entirely
-      parsed.enrichment = {
-        totalEnriched: enrichedCount,
-        averageCompletenessScore: 0,
-        sources: parsed.enrichment?.sources || [],
-        summary: { enriched: enrichedCount, completeness: 0 },
-      };
-
-      // Replace interactions entirely
-      parsed.interactions = {
-        totalLogged: 0,
-        touchpoints: [],
-      };
-
-      // Replace summary entirely with real data
-      parsed.summary = {
-        totalContacts: dbLeadCount,
-        totalDuplicatesRemoved: 0,
-        totalNormalized: 0,
-        totalEnriched: enrichedCount,
-        totalInteractions: 0,
-        dataQualityScore: 0,
+      const cleanOutput: any = {
+        deduplication: {
+          totalRecordsScanned: dbLeadCount,
+          duplicatesFound: 0,
+          duplicatesMerged: 0,
+          accuracy: 0,
+          duplicateRate: 0,
+          matchingCriteria: parsed.deduplication?.matchingCriteria || [],
+          mergeExamples: [],
+          summary: { scanned: dbLeadCount, duplicates: 0, merged: 0 },
+        },
+        normalization: {
+          recordsNormalized: 0,
+          fieldsUpdated: 0,
+          rules: parsed.normalization?.rules || [],
+          summary: { normalized: 0, fieldsUpdated: 0 },
+        },
+        validation: {
+          totalValidated: dbLeadCount,
+          invalidRecords: 0,
+          quarantined: 0,
+          rules: parsed.validation?.rules || [],
+          summary: { validated: dbLeadCount, invalid: 0, quarantined: 0 },
+        },
+        enrichment: {
+          totalEnriched: enrichedCount,
+          averageCompletenessScore: 0,
+          sources: parsed.enrichment?.sources || [],
+          summary: { enriched: enrichedCount, completeness: 0 },
+        },
+        interactions: {
+          totalLogged: 0,
+          touchpoints: [],
+        },
+        lifecycle: parsed.lifecycle || {},
+        compliance: parsed.compliance || {},
+        summary: {
+          totalContacts: dbLeadCount,
+          totalDuplicatesRemoved: 0,
+          totalNormalized: 0,
+          totalEnriched: enrichedCount,
+          totalInteractions: 0,
+          dataQualityScore: 0,
+        },
+        reasoning: parsed.reasoning || '',
+        confidence: parsed.confidence || 0,
       };
 
       this.status = 'done';
-      await this.log('run_completed', { output: parsed });
+      await this.log('run_completed', { output: cleanOutput });
       return {
         success: true,
-        data: parsed,
-        reasoning: parsed.reasoning || 'CRM hygiene analysis complete.',
-        confidence: parsed.confidence || 85,
+        data: cleanOutput,
+        reasoning: cleanOutput.reasoning || 'CRM hygiene analysis complete.',
+        confidence: cleanOutput.confidence || 85,
       };
     } catch (error: any) {
       this.status = 'done';

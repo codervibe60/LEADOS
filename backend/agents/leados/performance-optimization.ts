@@ -221,92 +221,40 @@ export class PerformanceOptimizationAgent extends BaseAgent {
       const response = await this.callClaude(SYSTEM_PROMPT, userMessage);
       const parsed = this.safeParseLLMJson<any>(response, ['currentMetrics', 'campaignAnalysis']);
 
-      // Force-zero all performance metrics — only real platform data allowed
-      const hasRealPlatformData = realGoogleMetrics.length > 0 || realMetaInsights.length > 0 || realConversions.length > 0;
-      if (parsed.currentMetrics) {
-        if (!hasRealPlatformData) {
-          Object.keys(parsed.currentMetrics).forEach(k => { if (typeof parsed.currentMetrics[k] === 'number') parsed.currentMetrics[k] = 0; });
-        }
-      }
-      if (parsed.campaignAnalysis) {
-        if (!hasRealPlatformData) {
-          parsed.campaignAnalysis = []; // No real campaign data to analyze
-        }
-      }
-      if (parsed.weeklyReport) {
-        if (!hasRealPlatformData) {
-          Object.keys(parsed.weeklyReport).forEach(k => { if (typeof parsed.weeklyReport[k] === 'number') parsed.weeklyReport[k] = 0; });
-        }
-      }
-      // Force-zero budget reallocation numbers — no real spend data
-      if (parsed.budgetReallocation) {
-        if (!hasRealPlatformData) {
-          parsed.budgetReallocation.totalBudget = 0;
-          parsed.budgetReallocation.savings = 0;
-          if (parsed.budgetReallocation.before) {
-            Object.keys(parsed.budgetReallocation.before).forEach(k => { if (typeof parsed.budgetReallocation.before[k] === 'number') parsed.budgetReallocation.before[k] = 0; });
-          }
-          if (parsed.budgetReallocation.after) {
-            Object.keys(parsed.budgetReallocation.after).forEach(k => { if (typeof parsed.budgetReallocation.after[k] === 'number') parsed.budgetReallocation.after[k] = 0; });
-          }
-        }
-      }
-      // Force-zero summary counts
-      if (parsed.summary) {
-        if (!hasRealPlatformData) {
-          parsed.summary.campaignsScaled = 0;
-          parsed.summary.campaignsOptimized = 0;
-          parsed.summary.campaignsKilled = 0;
-          parsed.summary.budgetReallocated = 0;
-          parsed.summary.projectedRoasImprovement = '0%';
-        }
-      }
-      // Zero creative fatigue metrics — no real CTR data
-      if (parsed.creativeFatigue && !hasRealPlatformData) {
-        for (const cf of parsed.creativeFatigue) {
-          cf.frequency = 0;
-          cf.ctrTrend = '0%';
-          cf.fatigueLevel = 'low';
-        }
-      }
+      // ── BUILD CLEAN OUTPUT — DO NOT trust ANY metric from LLM ──────────
+      const cleanOutput: any = {
+        optimizationStrategy: parsed.optimizationStrategy || {},
+        recommendations: parsed.recommendations || [],
+        offerRefinements: parsed.offerRefinements || [],
+        currentMetrics: { cpl: 0, cac: 0, roas: 0, ltv: 0, ltvCacRatio: 0, totalSpend: 0, totalRevenue: 0, totalLeads: 0, qualificationRate: 0 },
+        campaignAnalysis: [],
+        weeklyReport: { leadsGenerated: 0, qualifiedLeads: 0, meetingsBooked: 0, revenue: 0, spend: 0, roas: 0, cpl: 0 },
+        budgetReallocation: { totalBudget: 0, savings: 0, recommendations: parsed.budgetReallocation?.recommendations || [] },
+        summary: { campaignsScaled: 0, campaignsOptimized: 0, campaignsKilled: 0, budgetReallocated: 0, projectedRoasImprovement: '0%' },
+        creativeFatigue: [],
+        alerts: (parsed.alerts || []).map((a: any) => ({
+          severity: a.severity || 'info',
+          metric: a.metric || '',
+          message: a.message || '',
+          action: a.action || '',
+          note: 'No real campaign data — this is a pre-launch recommendation based on strategy, not measured data.',
+        })),
+        reasoning: parsed.reasoning || '',
+        confidence: parsed.confidence || 0,
+      };
 
-      // Apply real budget changes if ad platforms available and mutations enabled
-      if (parsed.campaignAnalysis && (googleAds.isGoogleAdsAvailable() || metaAds.isMetaAdsAvailable())) {
-        const mutations: string[] = [];
-
-        for (const campaign of parsed.campaignAnalysis) {
-          try {
-            if (campaign.status === 'kill') {
-              if (campaign.channel === 'google_ads' && campaign._campaignId && googleAds.isGoogleAdsAvailable()) {
-                await googleAds.pauseCampaign(campaign._campaignId);
-                mutations.push(`Paused Google campaign: ${campaign.campaign}`);
-              } else if (campaign.channel === 'meta_ads' && campaign._campaignId && metaAds.isMetaAdsAvailable()) {
-                await metaAds.pauseCampaign(campaign._campaignId);
-                mutations.push(`Paused Meta campaign: ${campaign.campaign}`);
-              }
-            }
-          } catch (err: any) {
-            await this.log('mutation_failed', { campaign: campaign.campaign, error: err.message });
-          }
-        }
-
-        if (mutations.length > 0) {
-          parsed._appliedMutations = mutations;
-          await this.log('mutations_applied', { count: mutations.length, mutations });
-        }
-      }
-
-      // Inject real platform data into output
-      if (realGoogleMetrics.length > 0) parsed._realGoogleMetrics = realGoogleMetrics;
-      if (realMetaInsights.length > 0) parsed._realMetaInsights = realMetaInsights;
+      // No campaigns to mutate since campaignAnalysis is empty (no real data)
+      // But keep real platform data references if they exist
+      if (realGoogleMetrics.length > 0) cleanOutput._realGoogleMetrics = realGoogleMetrics;
+      if (realMetaInsights.length > 0) cleanOutput._realMetaInsights = realMetaInsights;
 
       this.status = 'done';
-      await this.log('run_completed', { output: parsed });
+      await this.log('run_completed', { output: cleanOutput });
       return {
         success: true,
-        data: parsed,
-        reasoning: parsed.reasoning || 'Performance optimization analysis complete.',
-        confidence: parsed.confidence || 85,
+        data: cleanOutput,
+        reasoning: cleanOutput.reasoning || 'Performance optimization analysis complete.',
+        confidence: cleanOutput.confidence || 85,
       };
     } catch (error: any) {
       this.status = 'done';

@@ -275,104 +275,96 @@ export class PaidTrafficAgent extends BaseAgent {
       const response = await this.callClaude(SYSTEM_PROMPT, JSON.stringify(enrichedInput));
       const parsed = this.safeParseLLMJson<any>(response, ['googleAds', 'metaAds']);
 
-      // Force-zero ALL fabricated metrics — only real API data allowed
-
-      // Zero keyword metrics that weren't from real SerpAPI data
-      if (parsed.googleAds?.keywords) {
-        for (const kw of parsed.googleAds.keywords) {
-          // Only keep CPC/volume if we had real keyword data for this keyword
-          const realKw = keywordData.find((rk) => rk.keyword.toLowerCase() === (kw.keyword || '').toLowerCase());
-          if (!realKw) {
-            kw.estimatedCPC = 0;
-            kw.monthlySearchVolume = 0;
-          }
-        }
-      }
-      // Zero audience estimatedSize — no real Meta Ads audience data
-      if (parsed.metaAds?.audiences) {
-        for (const aud of parsed.metaAds.audiences) {
-          aud.estimatedSize = 0;
-        }
-      }
-
-      // Zero projections (all possible field names the LLM might use)
-      parsed.projections = {
-        estimatedCPL: 0, estimatedLeadsPerMonth: 0, estimatedCPA: 0, estimatedROAS: 0,
-        impressions: 0, clicks: 0, ctr: 0, conversions: 0, spend: 0, cpa: 0, roas: 0, cpl: 0,
-        note: 'No campaigns executed yet. Metrics will be measured after real campaign execution.',
+      // ── BUILD CLEAN OUTPUT — DO NOT trust ANY metric from LLM ──────────
+      // Keep ONLY strategy/creative from LLM, build a new object for everything else
+      const cleanOutput: any = {
+        googleAds: {
+          campaignName: parsed.googleAds?.campaignName || '',
+          keywords: (parsed.googleAds?.keywords || []).map((kw: any) => {
+            // Only keep CPC/volume if we had real SerpAPI data for this keyword
+            const realKw = keywordData.find((rk) => rk.keyword.toLowerCase() === (kw.keyword || '').toLowerCase());
+            return {
+              keyword: kw.keyword || '',
+              matchType: kw.matchType || 'phrase',
+              estimatedCPC: realKw ? realKw.cpc : 0,
+              monthlySearchVolume: realKw ? realKw.searchVolume : 0,
+              intent: kw.intent || 'medium',
+            };
+          }),
+          adGroups: parsed.googleAds?.adGroups || [],
+          negativeKeywords: parsed.googleAds?.negativeKeywords || [],
+          biddingStrategy: parsed.googleAds?.biddingStrategy || '',
+          conversionTracking: parsed.googleAds?.conversionTracking || {},
+          extensions: parsed.googleAds?.extensions || {},
+          dailyBudget: 0,
+          campaignMetrics: { impressions: 0, clicks: 0, ctr: 0, conversions: 0, costPerClick: 0, costPerConversion: 0, spend: 0 },
+        },
+        metaAds: {
+          campaignName: parsed.metaAds?.campaignName || '',
+          audiences: (parsed.metaAds?.audiences || []).map((a: any) => ({ ...a, estimatedSize: 0 })),
+          adSets: parsed.metaAds?.adSets || [],
+          pixelEvents: parsed.metaAds?.pixelEvents || [],
+          placements: parsed.metaAds?.placements || [],
+          dailyBudget: 0,
+          campaignMetrics: { impressions: 0, clicks: 0, ctr: 0, conversions: 0, costPerClick: 0, costPerConversion: 0, spend: 0 },
+        },
+        budgetAllocation: { google: 0, meta: 0, totalMonthlyBudget: 0 },
+        projections: {
+          estimatedCPL: 0, estimatedLeadsPerMonth: 0, estimatedCPA: 0, estimatedROAS: 0,
+          impressions: 0, clicks: 0, ctr: 0, conversions: 0, spend: 0,
+          note: 'No campaigns executed yet.',
+        },
+        totalMonthlyBudget: 0, estimatedCPL: 0, estimatedLeadsPerMonth: 0, estimatedROAS: 0,
+        reasoning: parsed.reasoning || '',
+        confidence: parsed.confidence || 0,
       };
-      // Zero budget allocation — LLM should not invent budgets
-      if (parsed.budgetAllocation) {
-        parsed.budgetAllocation.totalMonthlyBudget = 0;
-      }
-      // Zero top-level summary metrics if present
-      if (parsed.summary) {
-        Object.keys(parsed.summary).forEach(k => { if (typeof parsed.summary[k] === 'number') parsed.summary[k] = 0; });
-      }
-      // Zero any top-level LLM-fabricated fields the UI might read
-      parsed.totalMonthlyBudget = 0;
-      parsed.estimatedCPL = 0;
-      parsed.estimatedLeadsPerMonth = 0;
-      parsed.estimatedROAS = 0;
-      parsed.estimatedCPA = 0;
-      // Zero Google Ads metrics
-      if (parsed.googleAds?.campaignMetrics) {
-        parsed.googleAds.campaignMetrics = { impressions: 0, clicks: 0, ctr: 0, conversions: 0, costPerClick: 0, costPerConversion: 0, spend: 0 };
-      }
-      // Zero Meta Ads metrics
-      if (parsed.metaAds?.campaignMetrics) {
-        parsed.metaAds.campaignMetrics = { impressions: 0, clicks: 0, ctr: 0, conversions: 0, costPerClick: 0, costPerConversion: 0, spend: 0 };
-      }
 
       // Step 4: Create FULL campaign structure in Google Ads
-      if (googleAds.isGoogleAdsAvailable() && parsed.googleAds) {
+      if (googleAds.isGoogleAdsAvailable() && cleanOutput.googleAds) {
         try {
-          const dailyBudget = parsed.googleAds.dailyBudget || 100;
+          const dailyBudget = 100; // Use a default — LLM budget is zeroed
           const landingUrl = funnelData.landingPage?.url || offerData.landingPageUrl || 'https://leados.com';
 
           // 4a: Create campaign (ENABLED)
           await this.log('google_ads_creating', { phase: 'Creating ENABLED campaign with budget' });
           const campaign = await googleAds.createCampaign({
-            name: parsed.googleAds.campaignName || 'LeadOS Google Campaign',
+            name: cleanOutput.googleAds.campaignName || 'LeadOS Google Campaign',
             dailyBudgetMicros: dailyBudget * 1_000_000,
           });
-          parsed.googleAds._campaignId = campaign.campaignId;
-          parsed.googleAds._budgetId = campaign.budgetId;
-          parsed.googleAds._status = 'ENABLED';
-          parsed.googleAds._createdInGoogleAds = true;
+          cleanOutput.googleAds._campaignId = campaign.campaignId;
+          cleanOutput.googleAds._budgetId = campaign.budgetId;
+          cleanOutput.googleAds._status = 'ENABLED';
+          cleanOutput.googleAds._createdInGoogleAds = true;
           await this.log('google_ads_campaign_created', { campaignId: campaign.campaignId });
 
           // 4b: Add negative keywords at campaign level
-          if (parsed.googleAds.negativeKeywords?.length > 0) {
+          if (cleanOutput.googleAds.negativeKeywords?.length > 0) {
             try {
               await googleAds.addNegativeKeywords({
                 campaignResourceName: campaign.campaignResourceName,
-                keywords: parsed.googleAds.negativeKeywords,
+                keywords: cleanOutput.googleAds.negativeKeywords,
               });
-              await this.log('google_ads_negatives_added', { count: parsed.googleAds.negativeKeywords.length });
+              await this.log('google_ads_negatives_added', { count: cleanOutput.googleAds.negativeKeywords.length });
             } catch (err: any) {
               await this.log('google_ads_negatives_failed', { error: err.message });
             }
           }
 
           // 4c: Create ad groups with keywords and RSAs
-          const adGroups = parsed.googleAds.adGroups || [];
-          parsed.googleAds._adGroups = [];
+          const adGroups = cleanOutput.googleAds.adGroups || [];
+          cleanOutput.googleAds._adGroups = [];
           for (const ag of adGroups) {
             try {
-              // Create ad group
               const agResult = await googleAds.createAdGroup({
                 campaignResourceName: campaign.campaignResourceName,
                 name: ag.name,
               });
               await this.log('google_ads_adgroup_created', { name: ag.name, id: agResult.adGroupId });
 
-              // Add keywords to ad group
               const agKeywords = (ag.keywords || []).map((kw: string) => ({
                 text: kw,
                 matchType: 'PHRASE' as const,
               }));
-              // Also add exact match for each keyword
               const exactKeywords = (ag.keywords || []).map((kw: string) => ({
                 text: kw,
                 matchType: 'EXACT' as const,
@@ -386,7 +378,6 @@ export class PaidTrafficAgent extends BaseAgent {
                 await this.log('google_ads_keywords_added', { adGroup: ag.name, count: agKeywords.length + exactKeywords.length });
               }
 
-              // Create Responsive Search Ad
               if (ag.adCopy) {
                 const adResult = await googleAds.createResponsiveSearchAd({
                   adGroupResourceName: agResult.adGroupResourceName,
@@ -397,7 +388,7 @@ export class PaidTrafficAgent extends BaseAgent {
                 await this.log('google_ads_rsa_created', { adGroup: ag.name, adId: adResult.adId });
               }
 
-              parsed.googleAds._adGroups.push({
+              cleanOutput.googleAds._adGroups.push({
                 name: ag.name,
                 adGroupId: agResult.adGroupId,
                 keywordsCount: agKeywords.length + exactKeywords.length,
@@ -413,26 +404,24 @@ export class PaidTrafficAgent extends BaseAgent {
       }
 
       // Step 5: Create FULL campaign structure in Meta Ads
-      if (metaAds.isMetaAdsAvailable() && parsed.metaAds) {
+      if (metaAds.isMetaAdsAvailable() && cleanOutput.metaAds) {
         try {
           const landingUrl = funnelData.landingPage?.url || offerData.landingPageUrl || 'https://leados.com';
 
-          // 5a: Create campaign (ACTIVE)
           await this.log('meta_creating', { phase: 'Creating ACTIVE Meta campaign' });
           const campaign = await metaAds.createCampaign({
-            name: parsed.metaAds.campaignName || 'LeadOS Meta Campaign',
+            name: cleanOutput.metaAds.campaignName || 'LeadOS Meta Campaign',
             objective: 'OUTCOME_LEADS',
-            dailyBudget: parsed.metaAds.dailyBudget || 50,
+            dailyBudget: 50,
             status: 'ACTIVE',
           });
-          parsed.metaAds._campaignId = campaign.campaignId;
-          parsed.metaAds._status = 'ACTIVE';
-          parsed.metaAds._createdInMeta = true;
+          cleanOutput.metaAds._campaignId = campaign.campaignId;
+          cleanOutput.metaAds._status = 'ACTIVE';
+          cleanOutput.metaAds._createdInMeta = true;
           await this.log('meta_campaign_created', { campaignId: campaign.campaignId });
 
-          // 5b: Create ad sets with ads
-          const adSets = parsed.metaAds.adSets || [];
-          parsed.metaAds._adSets = [];
+          const adSets = cleanOutput.metaAds.adSets || [];
+          cleanOutput.metaAds._adSets = [];
           for (const adSet of adSets) {
             try {
               const adSetResult = await metaAds.createAdSet({
@@ -447,7 +436,6 @@ export class PaidTrafficAgent extends BaseAgent {
               });
               await this.log('meta_adset_created', { name: adSet.name, id: adSetResult.adSetId });
 
-              // Create ads for each creative in the ad set
               const creatives = adSet.creatives || [];
               const adIds: string[] = [];
               for (const creative of creatives) {
@@ -457,7 +445,7 @@ export class PaidTrafficAgent extends BaseAgent {
                     name: creative.name,
                     creativeData: {
                       title: creative.hook?.substring(0, 100) || adSet.name,
-                      body: creative.hook || `Discover ${parsed.metaAds.campaignName}`,
+                      body: creative.hook || `Discover ${cleanOutput.metaAds.campaignName}`,
                       linkUrl: landingUrl,
                       callToAction: 'LEARN_MORE',
                     },
@@ -469,7 +457,7 @@ export class PaidTrafficAgent extends BaseAgent {
                 }
               }
 
-              parsed.metaAds._adSets.push({
+              cleanOutput.metaAds._adSets.push({
                 name: adSet.name,
                 adSetId: adSetResult.adSetId,
                 adsCount: adIds.length,
@@ -484,22 +472,22 @@ export class PaidTrafficAgent extends BaseAgent {
         }
       }
 
-      // Inject real platform metrics into output
+      // Inject real platform metrics into output (these are REAL, from API)
       if (realGoogleMetrics.length > 0) {
-        parsed.googleAds._realMetrics = realGoogleMetrics;
+        cleanOutput.googleAds._realMetrics = realGoogleMetrics;
       }
       if (realMetaInsights.length > 0) {
-        parsed.metaAds._realMetrics = realMetaInsights;
+        cleanOutput.metaAds._realMetrics = realMetaInsights;
       }
 
       this.status = 'done';
-      await this.log('run_completed', { output: parsed });
+      await this.log('run_completed', { output: cleanOutput });
 
       return {
         success: true,
-        data: parsed,
-        reasoning: parsed.reasoning || 'Campaign setup complete',
-        confidence: parsed.confidence || 85,
+        data: cleanOutput,
+        reasoning: cleanOutput.reasoning || 'Campaign setup complete',
+        confidence: cleanOutput.confidence || 85,
       };
     } catch (error: any) {
       this.status = 'done';

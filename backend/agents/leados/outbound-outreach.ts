@@ -218,50 +218,71 @@ CRITICAL: For projectedMetrics, set ALL numeric values to 0 — no emails have b
       const response = await this.callClaude(SYSTEM_PROMPT, userMessage);
       const parsed = this.safeParseLLMJson<any>(response, ['coldEmail', 'linkedIn', 'projectedMetrics']);
 
-      // Force-zero ALL LLM-fabricated metrics — replace entire projectedMetrics
-      parsed.projectedMetrics = {
-        emailsSent: 0,
-        expectedOpenRate: 0,
-        expectedReplyRate: 0,
-        expectedReplies: 0,
-        expectedMeetings: 0,
-        meetingBookingRate: 0,
-        linkedInConnectionsSent: 0,
-        linkedInConnectionRate: 0,
-        linkedInConnections: 0,
-        linkedInReplyRate: 0,
-        linkedInReplies: 0,
-        linkedInMeetings: 0,
-        totalMeetingsFromOutbound: 0,
-        estimatedCostPerMeeting: 0,
+      // ── BUILD CLEAN OUTPUT — DO NOT trust ANY metric from LLM ──────────
+      // Keep ONLY strategy/creative from LLM, replace ALL metrics with a new object
+      const cleanOutput: any = {
+        coldEmail: {
+          platform: parsed.coldEmail?.platform || 'none',
+          campaignName: parsed.coldEmail?.campaignName || '',
+          prospectCriteria: parsed.coldEmail?.prospectCriteria || {},
+          prospectCount: realProspects.length,
+          domains: parsed.coldEmail?.domains || {},
+          sequences: parsed.coldEmail?.sequences || [],
+          personalizationFields: parsed.coldEmail?.personalizationFields || [],
+          sendingSchedule: parsed.coldEmail?.sendingSchedule || {},
+          complianceChecks: parsed.coldEmail?.complianceChecks || [],
+          abTests: parsed.coldEmail?.abTests || [],
+        },
+        linkedIn: {
+          targetProfiles: 0,
+          connectionStrategy: parsed.linkedIn?.connectionStrategy || '',
+          sequences: parsed.linkedIn?.sequences || [],
+          dailyLimits: parsed.linkedIn?.dailyLimits || {},
+          targetingCriteria: parsed.linkedIn?.targetingCriteria || {},
+          profileOptimization: parsed.linkedIn?.profileOptimization || {},
+        },
+        prospectList: [],
+        projectedMetrics: {
+          emailsSent: 0, expectedOpenRate: 0, expectedReplyRate: 0,
+          expectedReplies: 0, expectedMeetings: 0, meetingBookingRate: 0,
+          linkedInConnectionsSent: 0, linkedInConnectionRate: 0,
+          linkedInConnections: 0, linkedInReplyRate: 0,
+          linkedInReplies: 0, linkedInMeetings: 0,
+          totalMeetingsFromOutbound: 0, estimatedCostPerMeeting: 0,
+        },
+        contactedProspects: { total: 0, emailContacted: 0, linkedInContacted: 0, prospectListSize: 0 },
+        expectedReplies: {
+          emailReplies: 0, interestedLeads: 0, meetingsBooked: 0,
+          note: 'Metrics will be measured after campaign execution. No projections — real data only.',
+        },
+        linkedInConversations: { connectionsSent: 0, connectionsAccepted: 0, conversationsStarted: 0, meetingsFromLinkedIn: 0 },
+        crmBookings: { totalMeetingsBooked: 0, calendarIntegration: 'Calendly' },
+        dataSource: { prospects: 'none', campaign: 'none', apolloProspectsCount: 0 },
+        reasoning: parsed.reasoning || '',
+        confidence: parsed.confidence || 0,
       };
-      // Zero coldEmail fake counts — only real Apollo count allowed
-      if (parsed.coldEmail) {
-        parsed.coldEmail.prospectCount = realProspects.length > 0 ? realProspects.length : 0;
-        if (parsed.coldEmail.prospectCriteria) {
-          parsed.coldEmail.prospectCriteria.estimatedListSize = 0;
-        }
-      }
-      // Zero linkedIn fake counts
-      if (parsed.linkedIn) {
-        parsed.linkedIn.targetProfiles = 0;
+
+      // Zero estimatedListSize in prospectCriteria
+      if (cleanOutput.coldEmail.prospectCriteria) {
+        cleanOutput.coldEmail.prospectCriteria.estimatedListSize = 0;
       }
 
-      // Filter blacklisted companies from prospect list
+      // Filter blacklisted companies from LLM prospect list (if any)
+      let llmProspects = parsed.prospectList || [];
       try {
-        if (parsed.prospectList && parsed.prospectList.length > 0) {
-          const { allowed, blocked } = await filterBlacklisted(parsed.prospectList);
+        if (llmProspects.length > 0) {
+          const { allowed, blocked } = await filterBlacklisted(llmProspects);
           if (blocked.length > 0) {
             await this.log('blacklist_filtered', { removed: blocked.length, companies: blocked.map((b: any) => b.company) });
           }
-          parsed.prospectList = allowed;
-          parsed.blacklistFiltered = blocked.length;
+          llmProspects = allowed;
+          cleanOutput.blacklistFiltered = blocked.length;
         }
       } catch (err: any) {
         await this.log('blacklist_check_error', { error: err.message });
       }
 
-      // If we have real prospects from Apollo, inject them (after blacklist filter)
+      // If we have real prospects from Apollo, use them instead of LLM output
       if (realProspects.length > 0) {
         let prospects = realProspects.map((p) => ({
           firstName: p.firstName,
@@ -284,62 +305,37 @@ CRITICAL: For projectedMetrics, set ALL numeric values to 0 — no emails have b
           prospects = allowed;
         } catch { /* continue if blacklist check fails */ }
 
-        parsed.prospectList = prospects;
+        cleanOutput.prospectList = prospects;
       }
+
+      // Update prospect-related counts from real data
+      const prospectCount = cleanOutput.prospectList.length;
+      cleanOutput.coldEmail.prospectCount = prospectCount;
+      cleanOutput.contactedProspects.prospectListSize = prospectCount;
 
       // Add real campaign ID if available
       if (realCampaign?.id) {
-        if (parsed.coldEmail) {
-          parsed.coldEmail.campaignId = realCampaign.id;
-          parsed.coldEmail.dataSource = 'live_instantly';
-        }
-        parsed.instantlyCampaignId = realCampaign.id;
+        cleanOutput.coldEmail.campaignId = realCampaign.id;
+        cleanOutput.coldEmail.dataSource = 'live_instantly';
+        cleanOutput.instantlyCampaignId = realCampaign.id;
       }
 
-      // Add data source info
-      parsed.dataSource = {
-        prospects: realProspects.length > 0 ? 'live_apollo' : 'llm_generated',
-        campaign: realCampaign?.id ? 'live_instantly' : 'generated',
+      // Set data source info
+      cleanOutput.dataSource = {
+        prospects: realProspects.length > 0 ? 'live_apollo' : 'none',
+        campaign: realCampaign?.id ? 'live_instantly' : 'none',
         apolloProspectsCount: realProspects.length,
         instantlyCampaignId: realCampaign?.id || null,
       };
-
-      // Add output fields — all set to 0 since no campaigns have been executed yet
-      // Real metrics will be measured after campaign execution
-      const prospectCount = parsed.prospectList?.length || 0;
-
-      parsed.contactedProspects = {
-        total: 0,
-        emailContacted: 0,
-        linkedInContacted: 0,
-        prospectListSize: prospectCount,
-        dataSource: realProspects.length > 0 ? 'live_apollo' : 'llm_generated',
-      };
-      parsed.expectedReplies = {
-        emailReplies: 0,
-        interestedLeads: 0,
-        meetingsBooked: 0,
-        note: 'Metrics will be measured after campaign execution. No projections — real data only.',
-      };
-      parsed.linkedInConversations = {
-        connectionsSent: 0,
-        connectionsAccepted: 0,
-        conversationsStarted: 0,
-        meetingsFromLinkedIn: 0,
-      };
-      parsed.crmBookings = {
-        totalMeetingsBooked: 0,
-        calendarIntegration: 'Calendly',
-        crmPipeline: 'HubSpot — New Lead → AI Qualified → Strategy Call Booked',
-      };
+      cleanOutput.contactedProspects.dataSource = realProspects.length > 0 ? 'live_apollo' : 'none';
 
       this.status = 'done';
-      await this.log('run_completed', { output: parsed });
+      await this.log('run_completed', { output: cleanOutput });
       return {
         success: true,
-        data: parsed,
-        reasoning: parsed.reasoning || 'Dual-channel outbound campaign deployed with cold email and LinkedIn automation.',
-        confidence: parsed.confidence || 85,
+        data: cleanOutput,
+        reasoning: cleanOutput.reasoning || 'Dual-channel outbound campaign deployed with cold email and LinkedIn automation.',
+        confidence: cleanOutput.confidence || 85,
       };
     } catch (error: any) {
       this.status = 'done';
