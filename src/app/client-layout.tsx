@@ -22,6 +22,21 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
     loadBlacklist();
   }, [loadProjects, loadBlacklist]);
 
+  // Warn user before page refresh/close if pipeline is running.
+  // On reload the zustand module re-evaluates → store starts fresh → pipeline resets automatically.
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      const pipelineStatus = useAppStore.getState().pipeline.status;
+      if (pipelineStatus === 'running' || pipelineStatus === 'paused') {
+        e.preventDefault();
+        e.returnValue = 'Pipeline is currently running. If you refresh, the pipeline will reset. Are you sure?';
+        return e.returnValue;
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, []);
+
   useEffect(() => {
     let es: EventSource | null = null;
     try {
