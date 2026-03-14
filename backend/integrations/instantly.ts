@@ -1,7 +1,7 @@
 // Instantly.ai API client for cold email campaigns
 // Docs: https://developer.instantly.ai/
 
-const INSTANTLY_BASE = 'https://api.instantly.ai/api/v1';
+const INSTANTLY_BASE = 'https://api.instantly.ai/api/v2';
 
 function getApiKey(): string | null {
   return process.env.INSTANTLY_API_KEY || null;
@@ -12,7 +12,6 @@ async function instantlyFetch(endpoint: string, options: { method?: string; body
   if (!apiKey) throw new Error('INSTANTLY_API_KEY not configured');
 
   const url = new URL(`${INSTANTLY_BASE}${endpoint}`);
-  url.searchParams.set('api_key', apiKey);
   if (options.query) {
     for (const [k, v] of Object.entries(options.query)) {
       url.searchParams.set(k, v);
@@ -21,7 +20,10 @@ async function instantlyFetch(endpoint: string, options: { method?: string; body
 
   const res = await fetch(url.toString(), {
     method: options.method || 'GET',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
     body: options.body ? JSON.stringify(options.body) : undefined,
   });
 
@@ -57,7 +59,7 @@ export async function createCampaign(data: {
   sendingAccount?: string;
   dailyLimit?: number;
 }): Promise<InstantlyCampaign> {
-  const result = await instantlyFetch('/campaign/create', {
+  const result = await instantlyFetch('/campaigns', {
     method: 'POST',
     body: {
       name: data.name,
@@ -79,7 +81,7 @@ export async function addLeadsToCampaign(
   campaignId: string,
   leads: Array<{ email: string; firstName?: string; lastName?: string; company?: string; variables?: Record<string, string> }>
 ): Promise<{ added: number; campaignId: string }> {
-  const result = await instantlyFetch('/lead/add', {
+  const result = await instantlyFetch(`/leads`, {
     method: 'POST',
     body: {
       campaign_id: campaignId,
@@ -102,9 +104,7 @@ export async function addLeadsToCampaign(
 
 /** Get campaign analytics/stats */
 export async function getCampaignStats(campaignId: string): Promise<InstantlyCampaignStats> {
-  const result = await instantlyFetch('/analytics/campaign/summary', {
-    query: { campaign_id: campaignId },
-  });
+  const result = await instantlyFetch(`/campaigns/${campaignId}/analytics`);
 
   return {
     campaign_id: campaignId,
@@ -120,8 +120,9 @@ export async function getCampaignStats(campaignId: string): Promise<InstantlyCam
 
 /** List all campaigns */
 export async function listCampaigns(): Promise<InstantlyCampaign[]> {
-  const result = await instantlyFetch('/campaign/list');
-  return (result || []).map((c: any) => ({
+  const result = await instantlyFetch('/campaigns');
+  const items = result.items || result || [];
+  return (Array.isArray(items) ? items : []).map((c: any) => ({
     id: c.id || c.campaign_id,
     name: c.name,
     status: c.status || 'draft',
@@ -131,9 +132,8 @@ export async function listCampaigns(): Promise<InstantlyCampaign[]> {
 
 /** Launch/activate a campaign */
 export async function launchCampaign(campaignId: string): Promise<{ status: string }> {
-  await instantlyFetch('/campaign/launch', {
+  await instantlyFetch(`/campaigns/${campaignId}/activate`, {
     method: 'POST',
-    body: { campaign_id: campaignId },
   });
   return { status: 'active' };
 }
