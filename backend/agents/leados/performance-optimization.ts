@@ -130,7 +130,9 @@ Return ONLY valid JSON (no markdown, no explanation outside JSON) with this stru
   "confidence": "number 0-100"
 }
 
-Be ruthless with underperformers — every dollar wasted on a bad campaign is a dollar not spent on a winning one. But give new campaigns at least $200 in spend before kill decisions.`;
+Be ruthless with underperformers — every dollar wasted on a bad campaign is a dollar not spent on a winning one. But give new campaigns at least $200 in spend before kill decisions.
+
+CRITICAL DATA INTEGRITY RULE: Do NOT generate projected, estimated, or fabricated metrics. Optimization recommendations, creative fatigue detection logic, and offer refinement suggestions are strategic outputs and are expected. However, for currentMetrics: ONLY use data from real Google Ads, Meta Ads, or GA4 API responses provided in the input. If no real platform data exists, set cpl, cac, roas, ltv, ltvCacRatio, conversionRate, qualificationRate, totalSpend, totalRevenue, totalLeads ALL to 0. For campaignAnalysis: ONLY analyze real campaigns with real metrics. If no real campaign data exists, return an empty array. For weeklyReport: set all numeric values to 0 if no real data. For budgetReallocation: only propose changes for real campaigns. Never fabricate CPL, ROAS, spend, revenue, lead counts, or any performance metric. Never invent numbers that look like measured data.`;
 
 export class PerformanceOptimizationAgent extends BaseAgent {
   constructor() {
@@ -219,6 +221,55 @@ export class PerformanceOptimizationAgent extends BaseAgent {
       const response = await this.callClaude(SYSTEM_PROMPT, userMessage);
       const parsed = this.safeParseLLMJson<any>(response, ['currentMetrics', 'campaignAnalysis']);
 
+      // Force-zero all performance metrics — only real platform data allowed
+      const hasRealPlatformData = realGoogleMetrics.length > 0 || realMetaInsights.length > 0 || realConversions.length > 0;
+      if (parsed.currentMetrics) {
+        if (!hasRealPlatformData) {
+          Object.keys(parsed.currentMetrics).forEach(k => { if (typeof parsed.currentMetrics[k] === 'number') parsed.currentMetrics[k] = 0; });
+        }
+      }
+      if (parsed.campaignAnalysis) {
+        if (!hasRealPlatformData) {
+          parsed.campaignAnalysis = []; // No real campaign data to analyze
+        }
+      }
+      if (parsed.weeklyReport) {
+        if (!hasRealPlatformData) {
+          Object.keys(parsed.weeklyReport).forEach(k => { if (typeof parsed.weeklyReport[k] === 'number') parsed.weeklyReport[k] = 0; });
+        }
+      }
+      // Force-zero budget reallocation numbers — no real spend data
+      if (parsed.budgetReallocation) {
+        if (!hasRealPlatformData) {
+          parsed.budgetReallocation.totalBudget = 0;
+          parsed.budgetReallocation.savings = 0;
+          if (parsed.budgetReallocation.before) {
+            Object.keys(parsed.budgetReallocation.before).forEach(k => { if (typeof parsed.budgetReallocation.before[k] === 'number') parsed.budgetReallocation.before[k] = 0; });
+          }
+          if (parsed.budgetReallocation.after) {
+            Object.keys(parsed.budgetReallocation.after).forEach(k => { if (typeof parsed.budgetReallocation.after[k] === 'number') parsed.budgetReallocation.after[k] = 0; });
+          }
+        }
+      }
+      // Force-zero summary counts
+      if (parsed.summary) {
+        if (!hasRealPlatformData) {
+          parsed.summary.campaignsScaled = 0;
+          parsed.summary.campaignsOptimized = 0;
+          parsed.summary.campaignsKilled = 0;
+          parsed.summary.budgetReallocated = 0;
+          parsed.summary.projectedRoasImprovement = '0%';
+        }
+      }
+      // Zero creative fatigue metrics — no real CTR data
+      if (parsed.creativeFatigue && !hasRealPlatformData) {
+        for (const cf of parsed.creativeFatigue) {
+          cf.frequency = 0;
+          cf.ctrTrend = '0%';
+          cf.fatigueLevel = 'low';
+        }
+      }
+
       // Apply real budget changes if ad platforms available and mutations enabled
       if (parsed.campaignAnalysis && (googleAds.isGoogleAdsAvailable() || metaAds.isMetaAdsAvailable())) {
         const mutations: string[] = [];
@@ -259,238 +310,13 @@ export class PerformanceOptimizationAgent extends BaseAgent {
       };
     } catch (error: any) {
       this.status = 'done';
-      await this.log('run_fallback', { reason: error.message || 'Using mock data' });
-      const mockData = this.getMockOutput(inputs);
+      await this.log('run_error', { error: error.message });
       return {
-        success: true,
-        data: mockData,
-        reasoning: mockData.reasoning,
-        confidence: mockData.confidence,
+        success: false,
+        data: { error: error.message, agentId: this.id },
+        reasoning: `Agent failed: ${error.message}. No mock data used.`,
+        confidence: 0,
       };
     }
-  }
-
-  private getMockOutput(inputs: AgentInput): any {
-    const previousOutputs = inputs.previousOutputs || {};
-    const trackingData = previousOutputs['tracking-attribution'] || {};
-
-    const campaignAnalysis = [
-      {
-        campaign: 'Google Search — B2B Lead Gen',
-        channel: 'google_ads',
-        status: 'scale',
-        metrics: { spend: 3200, leads: 160, cpl: 20, roas: 5.2, ctr: 4.1, conversionRate: 4.2, qualifiedLeads: 48, meetings: 22 },
-        action: 'Increase budget by 30% to $4,160/week',
-        reason: 'ROAS 5.2x exceeds 3x threshold. CPL $20 is 20% below target. CTR stable at 4.1%. Highest quality leads — 30% qualification rate.',
-        budgetChange: '+$960 (+30%)',
-      },
-      {
-        campaign: 'Meta — Lookalike Audience',
-        channel: 'meta_ads',
-        status: 'optimize',
-        metrics: { spend: 2400, leads: 96, cpl: 25, roas: 3.2, ctr: 1.8, conversionRate: 3.1, qualifiedLeads: 22, meetings: 8 },
-        action: 'Refresh creatives (3 new variants), test video format',
-        reason: 'CTR dropped 18% over 7 days — creative fatigue detected. Fundamentals are strong (ROAS 3.2x). Need fresh angles to sustain performance.',
-        budgetChange: 'No change (maintain $2,400)',
-      },
-      {
-        campaign: 'Meta — Broad Interest',
-        channel: 'meta_ads',
-        status: 'kill',
-        metrics: { spend: 620, leads: 6, cpl: 103, roas: 0.4, ctr: 0.6, conversionRate: 0.5, qualifiedLeads: 0, meetings: 0 },
-        action: 'PAUSE IMMEDIATELY — reallocate $620 to Google Search',
-        reason: 'CPL $103 is 4x above target. ROAS 0.4x — losing money. Zero qualified leads from 6 total. Spent $620 (above $200 min) — confirmed underperformer.',
-        budgetChange: '-$620 (killed)',
-      },
-      {
-        campaign: 'LinkedIn — VP/Director Targeting',
-        channel: 'linkedin',
-        status: 'optimize',
-        metrics: { spend: 1800, leads: 45, cpl: 40, roas: 2.8, ctr: 0.9, conversionRate: 2.8, qualifiedLeads: 15, meetings: 7 },
-        action: 'Narrow targeting to 50-200 employees, test InMail format',
-        reason: 'Higher CPL ($40) offset by higher deal value — LinkedIn leads close at 2x rate of Meta. ROAS 2.8x is below 3x threshold but LTV justifies spend. Test tighter targeting to improve CPL.',
-        budgetChange: '-$200 (optimize spend)',
-      },
-      {
-        campaign: 'Cold Email — Instantly',
-        channel: 'email',
-        status: 'scale',
-        metrics: { spend: 450, leads: 45, cpl: 10, roas: 7.8, ctr: 42, conversionRate: 5.0, qualifiedLeads: 12, meetings: 5 },
-        action: 'Scale sending domains from 3 to 5, increase daily volume 40%',
-        reason: 'Lowest CPL at $10, highest ROAS at 7.8x. 42% open rate is exceptional. Bottleneck is volume — adding 2 more sending domains will scale without hurting deliverability.',
-        budgetChange: '+$180 (+40%)',
-      },
-      {
-        campaign: 'Organic Content — SEO/Blog',
-        channel: 'organic',
-        status: 'scale',
-        metrics: { spend: 0, leads: 28, cpl: 0, roas: Infinity, ctr: 5.2, conversionRate: 3.8, qualifiedLeads: 7, meetings: 3 },
-        action: 'Double blog output to 4 posts/week, optimize top 5 pages for conversion',
-        reason: 'Zero cost acquisition channel generating 28 leads. Conversion rate 3.8% is above average. Investing in content creation will compound returns over time.',
-        budgetChange: 'No ad spend (content investment)',
-      },
-    ];
-
-    const scaled = campaignAnalysis.filter(c => c.status === 'scale').length;
-    const optimized = campaignAnalysis.filter(c => c.status === 'optimize').length;
-    const killed = campaignAnalysis.filter(c => c.status === 'kill').length;
-
-    const totalSpend = campaignAnalysis.reduce((s, c) => s + c.metrics.spend, 0);
-    const totalLeads = campaignAnalysis.reduce((s, c) => s + c.metrics.leads, 0);
-    const totalQualified = campaignAnalysis.reduce((s, c) => s + c.metrics.qualifiedLeads, 0);
-    const totalMeetings = campaignAnalysis.reduce((s, c) => s + c.metrics.meetings, 0);
-    const totalRevenue = 35700;
-
-    return {
-      currentMetrics: {
-        cpl: Math.round((totalSpend / totalLeads) * 100) / 100,
-        cac: 127.80,
-        roas: Math.round((totalRevenue / totalSpend) * 100) / 100,
-        ltv: 4500,
-        ltvCacRatio: Math.round((4500 / 127.80) * 10) / 10,
-        conversionRate: 3.4,
-        qualificationRate: Math.round((totalQualified / totalLeads) * 100 * 10) / 10,
-        totalSpend,
-        totalRevenue,
-        totalLeads,
-      },
-      campaignAnalysis,
-      budgetReallocation: {
-        totalBudget: 8470,
-        before: {
-          'Google Search — B2B Lead Gen': 3200,
-          'Meta — Lookalike Audience': 2400,
-          'Meta — Broad Interest': 620,
-          'LinkedIn — VP/Director': 1800,
-          'Cold Email — Instantly': 450,
-        },
-        after: {
-          'Google Search — B2B Lead Gen': 4160,
-          'Meta — Lookalike Audience': 2400,
-          'Meta — Broad Interest': 0,
-          'LinkedIn — VP/Director': 1600,
-          'Cold Email — Instantly': 630,
-        },
-        savings: 0,
-        rationale: 'Killed Meta Broad ($620 freed). Reallocated: +$960 to Google Search (top ROAS), +$180 to Cold Email (best CPL). Reduced LinkedIn by $200 pending targeting optimization. Net budget unchanged at $8,790 with projected 22% ROAS improvement.',
-      },
-      creativeFatigue: [
-        {
-          campaign: 'Meta — Lookalike Audience',
-          ctrTrend: '2.1% → 1.8% (-18% in 7 days)',
-          frequency: 3.4,
-          fatigueLevel: 'high',
-          recommendation: 'Launch 3 new creatives immediately: (1) Video testimonial from SaaS client, (2) Static carousel with ROI stats, (3) UGC-style "day in the life" short. Rotate current winners to backup.',
-        },
-        {
-          campaign: 'LinkedIn — VP/Director Targeting',
-          ctrTrend: '1.0% → 0.9% (-10% in 7 days)',
-          frequency: 2.1,
-          fatigueLevel: 'medium',
-          recommendation: 'Test new ad format: InMail with personalized intro vs. current sponsored post. Refresh headline with updated case study data.',
-        },
-        {
-          campaign: 'Google Search — B2B Lead Gen',
-          ctrTrend: '4.0% → 4.1% (+2.5% in 7 days)',
-          frequency: 1.2,
-          fatigueLevel: 'low',
-          recommendation: 'No action needed — CTR trending up. Continue testing new ad copy variants monthly.',
-        },
-      ],
-      offerRefinements: [
-        {
-          priority: 'high',
-          area: 'Budget Reallocation',
-          currentState: 'Meta Broad consuming $620/week with 0 qualified leads',
-          recommendation: 'Kill Meta Broad immediately and redirect budget to Google Search where ROAS is 5.2x',
-          expectedImpact: 'Save $620/week in wasted spend, generate ~31 additional leads at $20 CPL',
-        },
-        {
-          priority: 'high',
-          area: 'Creative Refresh',
-          currentState: 'Meta Lookalike CTR dropped 18% in 7 days — ad fatigue imminent',
-          recommendation: 'Launch 3 new creative variants within 48 hours: video testimonial, ROI carousel, UGC short',
-          expectedImpact: 'Restore CTR from 1.8% to 2.5%+, maintain current lead volume of 96/week',
-        },
-        {
-          priority: 'medium',
-          area: 'Targeting',
-          currentState: 'LinkedIn CPL at $40 — 2x Google Search CPL',
-          recommendation: 'Narrow LinkedIn targeting to companies with 50-200 employees in SaaS/B2B Tech. Test InMail format.',
-          expectedImpact: 'Reduce LinkedIn CPL from $40 to ~$30, improve qualification rate by 10%',
-        },
-        {
-          priority: 'medium',
-          area: 'Email Volume',
-          currentState: 'Cold email at 3 sending domains, $10 CPL — most efficient channel',
-          recommendation: 'Add 2 more warmed sending domains, increase daily volume from 150 to 250 emails',
-          expectedImpact: '60% more email leads (45 → 72/week) at same $10 CPL',
-        },
-        {
-          priority: 'low',
-          area: 'Pricing',
-          currentState: 'Single pricing tier starting at $2,997/mo — may lose price-sensitive SMBs',
-          recommendation: 'Test a $1,497/mo starter tier targeting SMBs from LinkedIn. Lower barrier to entry, upsell later.',
-          expectedImpact: 'Capture 15-20% more SMB leads who currently drop off at pricing page',
-        },
-      ],
-      weeklyReport: {
-        period: 'March 3-9, 2026',
-        leadsGenerated: totalLeads,
-        qualifiedLeads: totalQualified,
-        meetingsBooked: totalMeetings,
-        revenue: totalRevenue,
-        roasOverall: Math.round((totalRevenue / totalSpend) * 100) / 100,
-        weekOverWeek: {
-          leads: '+14%',
-          qualified: '+18%',
-          revenue: '+22%',
-          cpl: '-6%',
-        },
-        topPerformer: 'Cold Email — Instantly (ROAS 7.8x, CPL $10)',
-        bottomPerformer: 'Meta — Broad Interest (ROAS 0.4x — KILLED)',
-      },
-      alerts: [
-        {
-          severity: 'critical',
-          metric: 'ROAS',
-          message: 'Meta Broad Interest ROAS fell to 0.4x — below 1x kill threshold',
-          action: 'Campaign paused and budget reallocated to Google Search',
-        },
-        {
-          severity: 'warning',
-          metric: 'CTR',
-          message: 'Meta Lookalike CTR dropped 18% in 7 days — creative fatigue detected',
-          action: 'Creative refresh queued — 3 new variants in production',
-        },
-        {
-          severity: 'warning',
-          metric: 'CPL',
-          message: 'LinkedIn CPL trending up from $35 to $40 over 2 weeks',
-          action: 'Targeting optimization in progress — narrowing to 50-200 employee companies',
-        },
-        {
-          severity: 'info',
-          metric: 'ROAS',
-          message: 'Google Search ROAS hit new high of 5.2x — above 3x scale threshold',
-          action: 'Budget increased 30% — monitoring for diminishing returns',
-        },
-        {
-          severity: 'info',
-          metric: 'Volume',
-          message: 'Cold Email volume at capacity (3 domains) — expansion recommended',
-          action: '2 additional sending domains being warmed for next week',
-        },
-      ],
-      summary: {
-        campaignsScaled: scaled,
-        campaignsOptimized: optimized,
-        campaignsKilled: killed,
-        budgetReallocated: 1140,
-        projectedRoasImprovement: '+22% (4.2x → 5.1x)',
-      },
-      reasoning: `Analyzed ${campaignAnalysis.length} active campaigns across Google, Meta, LinkedIn, Email, and Organic channels. ${scaled} campaigns scaled (Google Search 5.2x ROAS, Cold Email 7.8x ROAS, Organic ∞ ROAS). ${optimized} campaigns optimized (Meta Lookalike creative refresh, LinkedIn targeting refinement). ${killed} campaign killed (Meta Broad — 0.4x ROAS, $103 CPL, zero qualified leads after $620 spend). Budget reallocation: $1,140 moved from underperformers to top performers. Overall ROAS 4.2x with projected improvement to 5.1x (+22%) after optimizations. LTV/CAC ratio of 35.2x indicates excellent unit economics — well above the 3x health threshold. Key risk: Meta Lookalike creative fatigue (CTR -18%) — 3 new creatives queued for immediate deployment.`,
-      confidence: 89,
-    };
   }
 }

@@ -1,5 +1,4 @@
 import { BaseAgent, AgentInput, AgentOutput } from '../base-agent';
-import { mockInstantly } from '../../integrations/mock-data';
 import * as apollo from '../../integrations/apollo';
 import * as instantly from '../../integrations/instantly';
 import { filterBlacklisted } from '../../utils/blacklist';
@@ -127,7 +126,9 @@ Return ONLY valid JSON (no markdown, no explanation outside JSON) with this stru
   },
   "reasoning": "string",
   "confidence": "number 0-100"
-}`;
+}
+
+CRITICAL DATA INTEGRITY RULE: Do NOT generate projected, estimated, or fabricated metrics. Campaign strategy, email sequences, LinkedIn scripts, and prospect criteria are strategic outputs and are expected. However, for projectedMetrics: set ALL numeric values to 0 — no emails have been sent, no connections made, no meetings booked yet. These will be measured after execution. For prospectList: ONLY include real prospects from Apollo API data if provided. If no real prospect data exists, return an empty prospectList array. Never invent fictional people, companies, or email addresses. Never fabricate numbers that look like measured data.`;
 
 export class OutboundOutreachAgent extends BaseAgent {
   constructor() {
@@ -208,17 +209,42 @@ export class OutboundOutreachAgent extends BaseAgent {
           dataSource: realProspects.length > 0 ? 'live_apollo' : 'llm_generated',
         },
         IMPORTANT_INSTRUCTION: realProspects.length > 0
-          ? `REAL prospect data from Apollo is provided in realData.apolloProspects. Use ONLY these real prospects in your prospectList — do NOT invent fictional prospects. Build email sequences and LinkedIn outreach around these actual people. Projected metrics should be based on the real prospect count (${realProspects.length}), not fabricated numbers.`
-          : 'No real prospect data available from Apollo. Generate realistic prospect criteria and campaign strategy, but clearly mark all prospect names as examples.',
+          ? `REAL prospect data from Apollo is provided in realData.apolloProspects. Use ONLY these real prospects in your prospectList — do NOT invent fictional prospects. Build email sequences and LinkedIn outreach around these actual people.
+CRITICAL: For projectedMetrics, set emailsSent to 0, expectedReplies to 0, expectedMeetings to 0, linkedInConnectionsSent to 0, linkedInReplies to 0, linkedInMeetings to 0, totalMeetingsFromOutbound to 0, estimatedCostPerMeeting to 0. Set expectedOpenRate, expectedReplyRate, linkedInConnectionRate, linkedInReplyRate, meetingBookingRate to 0. These are REAL campaigns — metrics will be measured after execution, not projected. Set prospectCount to exactly ${realProspects.length} (the real count from Apollo). Do NOT fabricate numbers.`
+          : `No real prospect data available from Apollo. Generate realistic prospect criteria and campaign strategy, but clearly mark all prospect names as examples.
+CRITICAL: For projectedMetrics, set ALL numeric values to 0 — no emails have been sent, no connections made, no meetings booked. Do NOT fabricate metrics.`,
       });
 
-      let parsed: any;
-      try {
-        const response = await this.callClaude(SYSTEM_PROMPT, userMessage);
-        parsed = this.safeParseLLMJson<any>(response, ['coldEmail', 'linkedIn', 'projectedMetrics']);
-      } catch (llmError: any) {
-        await this.log('claude_fallback', { reason: llmError.message });
-        parsed = await this.getMockOutput(inputs);
+      const response = await this.callClaude(SYSTEM_PROMPT, userMessage);
+      const parsed = this.safeParseLLMJson<any>(response, ['coldEmail', 'linkedIn', 'projectedMetrics']);
+
+      // Force-zero ALL LLM-fabricated metrics — replace entire projectedMetrics
+      parsed.projectedMetrics = {
+        emailsSent: 0,
+        expectedOpenRate: 0,
+        expectedReplyRate: 0,
+        expectedReplies: 0,
+        expectedMeetings: 0,
+        meetingBookingRate: 0,
+        linkedInConnectionsSent: 0,
+        linkedInConnectionRate: 0,
+        linkedInConnections: 0,
+        linkedInReplyRate: 0,
+        linkedInReplies: 0,
+        linkedInMeetings: 0,
+        totalMeetingsFromOutbound: 0,
+        estimatedCostPerMeeting: 0,
+      };
+      // Zero coldEmail fake counts — only real Apollo count allowed
+      if (parsed.coldEmail) {
+        parsed.coldEmail.prospectCount = realProspects.length > 0 ? realProspects.length : 0;
+        if (parsed.coldEmail.prospectCriteria) {
+          parsed.coldEmail.prospectCriteria.estimatedListSize = 0;
+        }
+      }
+      // Zero linkedIn fake counts
+      if (parsed.linkedIn) {
+        parsed.linkedIn.targetProfiles = 0;
       }
 
       // Filter blacklisted companies from prospect list
@@ -278,32 +304,31 @@ export class OutboundOutreachAgent extends BaseAgent {
         instantlyCampaignId: realCampaign?.id || null,
       };
 
-      // Add expected output fields
-      const prospectCount = parsed.prospectList?.length || parsed.coldEmail?.prospectCount || 0;
-      const emailReplyRate = parsed.projectedMetrics?.expectedReplyRate || 5;
-      const emailReplies = parsed.projectedMetrics?.expectedReplies || Math.round(prospectCount * emailReplyRate / 100);
-      const linkedInTargets = parsed.linkedIn?.targetProfiles || 200;
+      // Add output fields — all set to 0 since no campaigns have been executed yet
+      // Real metrics will be measured after campaign execution
+      const prospectCount = parsed.prospectList?.length || 0;
 
       parsed.contactedProspects = {
-        total: prospectCount + linkedInTargets,
-        emailContacted: prospectCount,
-        linkedInContacted: linkedInTargets,
+        total: 0,
+        emailContacted: 0,
+        linkedInContacted: 0,
+        prospectListSize: prospectCount,
         dataSource: realProspects.length > 0 ? 'live_apollo' : 'llm_generated',
       };
       parsed.expectedReplies = {
-        emailReplies,
-        interestedLeads: Math.round(emailReplies * 0.6),
-        meetingsBooked: parsed.projectedMetrics?.expectedMeetings || Math.round(emailReplies * 0.2),
+        emailReplies: 0,
+        interestedLeads: 0,
+        meetingsBooked: 0,
+        note: 'Metrics will be measured after campaign execution. No projections — real data only.',
       };
       parsed.linkedInConversations = {
-        connectionsSent: linkedInTargets,
-        connectionsAccepted: Math.round(linkedInTargets * (parsed.projectedMetrics?.linkedInConnectionRate || 60) / 100),
-        conversationsStarted: Math.round(linkedInTargets * (parsed.projectedMetrics?.linkedInReplyRate || 25) / 100),
-        meetingsFromLinkedIn: parsed.projectedMetrics?.linkedInMeetings || Math.round(linkedInTargets * 0.03),
+        connectionsSent: 0,
+        connectionsAccepted: 0,
+        conversationsStarted: 0,
+        meetingsFromLinkedIn: 0,
       };
       parsed.crmBookings = {
-        totalMeetingsBooked: (parsed.projectedMetrics?.totalMeetingsFromOutbound || 0) ||
-          ((parsed.expectedReplies?.meetingsBooked || 0) + (parsed.linkedInConversations?.meetingsFromLinkedIn || 0)),
+        totalMeetingsBooked: 0,
         calendarIntegration: 'Calendly',
         crmPipeline: 'HubSpot — New Lead → AI Qualified → Strategy Call Booked',
       };
@@ -328,208 +353,4 @@ export class OutboundOutreachAgent extends BaseAgent {
     }
   }
 
-  private async runColdEmailCampaign(inputs: AgentInput): Promise<any> {
-    const niche = inputs.config?.niche || 'B2B SaaS';
-    const campaign = await mockInstantly.createCampaign({
-      name: `LeadOS — Cold Email — ${niche} ICP`,
-      type: 'cold_email',
-      sendingAccount: 'outreach@leadflow-ai.com',
-      dailyLimit: 50,
-      warmupEnabled: true,
-    });
-
-    const prospectList = [
-      { firstName: 'Sarah', lastName: 'Chen', email: 'sarah.chen@techventures.io', company: 'TechVentures Inc', jobTitle: 'VP of Marketing', industry: 'SaaS', companySize: '50-200', linkedInUrl: 'linkedin.com/in/sarachen', personalizationNote: 'Recently posted about scaling their marketing team' },
-      { firstName: 'James', lastName: 'Park', email: 'james.p@scaleup.io', company: 'ScaleUp', jobTitle: 'Head of Growth', industry: 'SaaS', companySize: '100-500', linkedInUrl: 'linkedin.com/in/jamespark', personalizationNote: 'Company raised Series B last month' },
-      { firstName: 'Emily', lastName: 'Watson', email: 'emily@cloudplatform.com', company: 'CloudPlatform', jobTitle: 'CMO', industry: 'Cloud Computing', companySize: '200-1000', linkedInUrl: 'linkedin.com/in/emilywatson', personalizationNote: 'Spoke at SaaStr about demand gen challenges' },
-      { firstName: 'David', lastName: 'Kim', email: 'dkim@revops.co', company: 'RevOps Consulting', jobTitle: 'CEO', industry: 'MarTech', companySize: '10-50', linkedInUrl: 'linkedin.com/in/davidkim', personalizationNote: 'Active LinkedIn poster about sales automation' },
-      { firstName: 'Lisa', lastName: 'Rodriguez', email: 'lisa@growthstack.io', company: 'GrowthStack', jobTitle: 'Director of Demand Gen', industry: 'FinTech', companySize: '50-200', linkedInUrl: 'linkedin.com/in/lisarodriguez', personalizationNote: 'Hiring for SDR roles — signal of outbound investment' },
-    ];
-
-    await mockInstantly.addLeads(campaign.id, prospectList);
-
-    return {
-      platform: 'instantly',
-      campaignName: `LeadOS — Cold Email — ${niche} ICP`,
-      campaignId: campaign.id,
-      prospectCriteria: {
-        icpMatch: `Decision-makers at ${niche} companies (50-1000 employees) in growth phase — VPs, CMOs, Heads of Growth, CEOs at SMBs`,
-        sources: ['Apollo.io', 'Clay', 'LinkedIn Sales Navigator'],
-        estimatedListSize: 500,
-      },
-      prospectCount: 500,
-      domains: {
-        sendingDomains: ['outreach@leadflow-ai.com', 'hello@leadflow.co', 'team@getleadflow.com'],
-        warmupStatus: 'Fully warmed — 14+ days, sending 30/day per domain',
-        dailyRampSchedule: 'Week 1: 10/day → Week 2: 20/day → Week 3+: 50/day',
-      },
-      sequences: [
-        {
-          step: 1,
-          delay: 'Day 0',
-          subject: 'Quick question about {company}\'s pipeline',
-          subjectLineB: '{firstName}, thought of {company} when I saw this',
-          template: 'Hi {firstName},\n\nI noticed {company} is growing fast in the {industry} space — congrats on the momentum.\n\nQuick question: are you still relying on manual outbound or agencies to fill the pipeline?\n\nI ask because we built an AI system (13 specialized agents) that handles the entire lead gen lifecycle — from campaign management to AI voice qualification. Our {industry} clients typically see 2x qualified leads within 90 days.\n\nWould a 15-minute chat this week make sense to see if it fits?\n\nBest,\n{senderName}\n\n{unsubscribe_link}',
-          purpose: 'Soft intro — establish relevance and plant curiosity without hard selling',
-        },
-        {
-          step: 2,
-          delay: 'Day 3',
-          subject: 'How {similar_company} cut their CAC by 62%',
-          subjectLineB: 'The {industry} playbook that cut CAC in half',
-          template: 'Hi {firstName},\n\nWanted to share something relevant to {company}.\n\nA {industry} company (similar stage to you) was spending $340/lead with their agency. After deploying our AI system:\n\n• CAC: $340 → $128 (62% drop)\n• Qualified leads: 40/mo → 127/mo (3.2x)\n• Sales team saved 25 hrs/week on qualification\n\nThe biggest unlock was AI voice agents that qualify every lead on BANT criteria before any human gets involved.\n\nWant me to walk you through how this would work for {company} specifically?\n\n{senderName}\n\n{unsubscribe_link}',
-          purpose: 'Value delivery — share a specific, relevant case study with hard metrics',
-        },
-        {
-          step: 3,
-          delay: 'Day 7',
-          subject: 'The ROI math for {company}',
-          subjectLineB: 'I ran the numbers for {company}',
-          template: 'Hi {firstName},\n\nI ran some rough numbers based on companies similar to {company}:\n\n• Estimated current CAC: ~$250-$350\n• With LeadOS: $120-$150\n• Projected qualified lead increase: 80-120% in 90 days\n• Estimated annual savings: $180K-$420K\n\nThese aren\'t hypotheticals — they\'re based on data from 500+ companies in our system.\n\nAnd we guarantee it: 2x qualified leads in 90 days or full refund.\n\nWorth 30 minutes to see a custom projection for {company}?\n\n→ Grab a time here: {calendly_link}\n\n{senderName}\n\n{unsubscribe_link}',
-          purpose: 'Quantified value — make the financial ROI undeniable with custom-feeling numbers',
-        },
-        {
-          step: 4,
-          delay: 'Day 11',
-          subject: 'Only 3 Q2 spots left',
-          subjectLineB: 'Closing onboarding for the quarter soon',
-          template: 'Hi {firstName},\n\nQuick heads up — we cap onboarding at 10 clients/month for quality, and only 3 spots remain for Q2.\n\nIf growing {company}\'s pipeline is a priority this quarter, here\'s what a strategy call covers:\n\n1. Audit of your current lead gen channels\n2. Custom AI pipeline design for your ICP\n3. 90-day growth projection with expected metrics\n\nNo commitment — worst case you leave with a free audit.\n\n→ {calendly_link}\n\n{senderName}\n\n{unsubscribe_link}',
-          purpose: 'Urgency — create real scarcity while providing a clear next step',
-        },
-        {
-          step: 5,
-          delay: 'Day 15',
-          subject: 'Closing the loop',
-          subjectLineB: 'No hard feelings, {firstName}',
-          template: 'Hi {firstName},\n\nI\'ve reached out a few times about helping {company} scale qualified leads — I don\'t want to be a pest, so this will be my last email.\n\nIf the timing isn\'t right, totally understand. But if lead generation is something you\'re actively trying to solve, our 90-day guarantee makes it a zero-risk conversation.\n\nEither way, wishing you and the {company} team a great quarter.\n\n{senderName}\n\nP.S. — If someone else on your team handles demand gen, happy to connect with them instead.\n\n{unsubscribe_link}',
-          purpose: 'Breakup — graceful exit that often triggers a response due to loss aversion',
-        },
-      ],
-      personalizationFields: [
-        '{firstName}', '{company}', '{industry}', '{similar_company}',
-        '{companySize}', '{painPoint}', '{recentActivity}',
-        '{senderName}', '{calendly_link}', '{unsubscribe_link}',
-      ],
-      sendingSchedule: {
-        days: ['Monday', 'Tuesday', 'Wednesday', 'Thursday'],
-        timeWindow: '8:00 AM - 11:00 AM',
-        timezone: 'recipient_local',
-        dailyLimit: 50,
-        delayBetweenSends: '45 seconds',
-      },
-      complianceChecks: [
-        'CAN-SPAM: Physical address in footer',
-        'CAN-SPAM: Unsubscribe link in every email',
-        'CAN-SPAM: No deceptive subject lines',
-        'GDPR: Legitimate interest basis documented',
-        'GDPR: Data processing record maintained',
-        'CASL: Implied consent for B2B contacts (6-month window)',
-        'Bounce handling: Auto-remove hard bounces, pause if >5%',
-        'DNC list: Cross-referenced before sending',
-        'Domain reputation: Monitor sender score daily',
-      ],
-      abTests: [
-        { variable: 'Subject Line (Step 1)', variantA: 'Quick question about {company}\'s pipeline', variantB: '{firstName}, thought of {company} when I saw this' },
-        { variable: 'Subject Line (Step 2)', variantA: 'How {similar_company} cut their CAC by 62%', variantB: 'The {industry} playbook that cut CAC in half' },
-        { variable: 'CTA Style (Step 3)', variantA: 'Calendar link in email', variantB: 'Reply-to-book approach' },
-      ],
-    };
-  }
-
-  private async runLinkedInOutreach(inputs: AgentInput): Promise<any> {
-    return {
-      targetProfiles: 200,
-      connectionStrategy: 'Target ICP decision-makers at companies showing buying signals — recent funding, hiring SDRs, posting about growth challenges. Personalize connection notes referencing their content or company news.',
-      sequences: [
-        {
-          step: 1,
-          type: 'connection_request',
-          delay: 'Day 0',
-          message: 'Hi {firstName}, I\'ve been following {company}\'s growth in the {industry} space — impressive trajectory. I work with {industry} leaders on scaling their pipeline with AI-powered lead gen. Would love to connect and exchange ideas.',
-          triggerCondition: 'Profile matches ICP criteria',
-        },
-        {
-          step: 2,
-          type: 'value_message',
-          delay: 'Day 2 (after connection accepted)',
-          message: 'Thanks for connecting, {firstName}! Genuine question — how are you currently handling lead generation at {company}?\n\nI ask because we recently helped a company similar to yours go from 40 to 127 qualified leads/month in 90 days using an autonomous AI system.\n\nI wrote up the case study — want me to send it over? No pitch, just thought it might spark some ideas for your team.',
-          triggerCondition: 'Connection request accepted',
-        },
-        {
-          step: 3,
-          type: 'case_study',
-          delay: 'Day 5',
-          message: 'Hi {firstName}, wanted to share one more data point that might be relevant.\n\nWe analyzed pipeline data from 500+ companies and found that the ones using AI-powered qualification see 62% lower CAC on average — mainly because AI filters out tire-kickers before they consume sales bandwidth.\n\nIf you\'re seeing high CAC or low lead quality at {company}, I think we could help. Happy to walk you through how in a 15-min call.',
-          triggerCondition: 'No reply to value message after 3 days',
-        },
-        {
-          step: 4,
-          type: 'direct_ask',
-          delay: 'Day 10',
-          message: 'Last note from me, {firstName} — we\'re opening 3 spots for our Q2 cohort and I thought of {company}.\n\nWe offer a free 30-min strategy call where we map out a custom AI pipeline for your ICP, plus a 90-day growth projection. And we back it with a guarantee: 2x qualified leads or full refund.\n\nWorth exploring? Here\'s my calendar: {calendly_link}',
-          triggerCondition: 'No reply to case study after 5 days',
-        },
-      ],
-      dailyLimits: {
-        connectionRequests: 25,
-        messages: 50,
-        profileViews: 80,
-      },
-      targetingCriteria: {
-        jobTitles: ['VP of Marketing', 'Head of Growth', 'CMO', 'Director of Demand Gen', 'VP Sales', 'CEO (at companies <50 employees)'],
-        companySize: '10-500 employees',
-        industries: ['SaaS', 'B2B Technology', 'Cloud Computing', 'MarTech', 'FinTech'],
-        geography: 'United States, Canada, United Kingdom',
-        additionalFilters: [
-          'Posted about growth/marketing in last 90 days',
-          'Company raised funding in last 12 months',
-          'Active LinkedIn user (posts/comments weekly)',
-          'Currently hiring for SDR/BDR roles (buying signal)',
-        ],
-      },
-      profileOptimization: {
-        headline: 'Helping {industry} companies 2x qualified leads in 90 days with AI | Founder @ LeadOS',
-        about: 'We built 13 AI agents that handle the entire lead generation lifecycle — from finding prospects to qualifying them with AI voice calls. Our clients see 62% lower CAC and 3x more qualified meetings. If you\'re spending too much on agencies or manual outbound, let\'s talk.',
-        bannerCTA: 'Book a free strategy call → leadflow.ai/strategy',
-      },
-    };
-  }
-
-  private async getMockOutput(inputs: AgentInput): Promise<any> {
-    const coldEmail = await this.runColdEmailCampaign(inputs);
-    const linkedIn = await this.runLinkedInOutreach(inputs);
-
-    const prospectList = [
-      { firstName: 'Sarah', lastName: 'Chen', email: 'sarah.chen@techventures.io', company: 'TechVentures Inc', jobTitle: 'VP of Marketing', industry: 'SaaS', companySize: '50-200', linkedInUrl: 'linkedin.com/in/sarachen', personalizationNote: 'Recently posted about scaling their marketing team' },
-      { firstName: 'James', lastName: 'Park', email: 'james.p@scaleup.io', company: 'ScaleUp', jobTitle: 'Head of Growth', industry: 'SaaS', companySize: '100-500', linkedInUrl: 'linkedin.com/in/jamespark', personalizationNote: 'Company raised Series B last month' },
-      { firstName: 'Emily', lastName: 'Watson', email: 'emily@cloudplatform.com', company: 'CloudPlatform', jobTitle: 'CMO', industry: 'Cloud Computing', companySize: '200-1000', linkedInUrl: 'linkedin.com/in/emilywatson', personalizationNote: 'Spoke at SaaStr about demand gen challenges' },
-      { firstName: 'David', lastName: 'Kim', email: 'dkim@revops.co', company: 'RevOps Consulting', jobTitle: 'CEO', industry: 'MarTech', companySize: '10-50', linkedInUrl: 'linkedin.com/in/davidkim', personalizationNote: 'Active LinkedIn poster about sales automation' },
-      { firstName: 'Lisa', lastName: 'Rodriguez', email: 'lisa@growthstack.io', company: 'GrowthStack', jobTitle: 'Director of Demand Gen', industry: 'FinTech', companySize: '50-200', linkedInUrl: 'linkedin.com/in/lisarodriguez', personalizationNote: 'Hiring for SDR roles — signal of outbound investment' },
-    ];
-
-    return {
-      coldEmail,
-      linkedIn,
-      prospectList,
-      projectedMetrics: {
-        emailsSent: 2500,
-        expectedOpenRate: 42.0,
-        expectedReplyRate: 5.0,
-        expectedReplies: 125,
-        expectedMeetings: 25,
-        meetingBookingRate: 20.0,
-        linkedInConnectionsSent: 200,
-        linkedInConnectionRate: 60.0,
-        linkedInConnections: 120,
-        linkedInReplyRate: 25.0,
-        linkedInReplies: 30,
-        linkedInMeetings: 6,
-        totalMeetingsFromOutbound: 31,
-        estimatedCostPerMeeting: 12.50,
-      },
-      reasoning:
-        'Deployed dual-channel outbound strategy targeting B2B SaaS decision-makers. Cold email campaign via Instantly targets 500 prospects with a 5-step sequence following the intro → value → ROI → urgency → breakup framework. Each step includes A/B test variants for subject lines. Sending schedule optimized for Mon-Thu mornings in recipient timezone to maximize open rates. Three warmed sending domains rotate to protect deliverability. LinkedIn outreach targets 200 profiles with a 4-step sequence progressing from connection request to value-first engagement to direct ask, with trigger conditions for smart follow-up timing. Daily limits kept conservative (25 connections, 50 messages) to stay under LinkedIn\'s automation detection threshold. Full CAN-SPAM, GDPR, and CASL compliance with DNC cross-referencing. Projected metrics based on industry benchmarks: 42% open rate, 5% reply rate, 20% reply-to-meeting conversion, 60% LinkedIn connection acceptance, 25% LinkedIn reply rate. Combined outbound should generate ~31 meetings/month at ~$12.50/meeting.',
-      confidence: 83,
-    };
-  }
 }

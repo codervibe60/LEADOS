@@ -31,6 +31,8 @@ SUB-AGENT 2: Meta Ads Campaign Manager
 
 CRITICAL: Adapt everything to the specific niche, ICP, and offer. Use real keyword data and trend insights provided in the input.
 
+CRITICAL DATA INTEGRITY RULE: Do NOT generate projected, estimated, or fabricated metrics. Campaign structure, keyword lists, audience targeting, ad copies, and bidding strategies are strategic outputs and are expected. However, for the "projections" object: set estimatedCPL, estimatedLeadsPerMonth, estimatedCPA, and estimatedROAS ALL to 0. These are unmeasured — real metrics will come from live campaign data after execution. For keyword estimatedCPC and monthlySearchVolume: only include values from real SerpAPI/keyword research data provided in the input. If no real keyword data exists, set these to 0. For audience estimatedSize: set to 0 unless real Meta Ads data is provided. Never invent numbers that look like measured data.
+
 Return ONLY valid JSON (no markdown, no explanation outside JSON) with this structure:
 {
   "googleAds": {
@@ -273,6 +275,55 @@ export class PaidTrafficAgent extends BaseAgent {
       const response = await this.callClaude(SYSTEM_PROMPT, JSON.stringify(enrichedInput));
       const parsed = this.safeParseLLMJson<any>(response, ['googleAds', 'metaAds']);
 
+      // Force-zero ALL fabricated metrics — only real API data allowed
+
+      // Zero keyword metrics that weren't from real SerpAPI data
+      if (parsed.googleAds?.keywords) {
+        for (const kw of parsed.googleAds.keywords) {
+          // Only keep CPC/volume if we had real keyword data for this keyword
+          const realKw = keywordData.find((rk) => rk.keyword.toLowerCase() === (kw.keyword || '').toLowerCase());
+          if (!realKw) {
+            kw.estimatedCPC = 0;
+            kw.monthlySearchVolume = 0;
+          }
+        }
+      }
+      // Zero audience estimatedSize — no real Meta Ads audience data
+      if (parsed.metaAds?.audiences) {
+        for (const aud of parsed.metaAds.audiences) {
+          aud.estimatedSize = 0;
+        }
+      }
+
+      // Zero projections (all possible field names the LLM might use)
+      parsed.projections = {
+        estimatedCPL: 0, estimatedLeadsPerMonth: 0, estimatedCPA: 0, estimatedROAS: 0,
+        impressions: 0, clicks: 0, ctr: 0, conversions: 0, spend: 0, cpa: 0, roas: 0, cpl: 0,
+        note: 'No campaigns executed yet. Metrics will be measured after real campaign execution.',
+      };
+      // Zero budget allocation — LLM should not invent budgets
+      if (parsed.budgetAllocation) {
+        parsed.budgetAllocation.totalMonthlyBudget = 0;
+      }
+      // Zero top-level summary metrics if present
+      if (parsed.summary) {
+        Object.keys(parsed.summary).forEach(k => { if (typeof parsed.summary[k] === 'number') parsed.summary[k] = 0; });
+      }
+      // Zero any top-level LLM-fabricated fields the UI might read
+      parsed.totalMonthlyBudget = 0;
+      parsed.estimatedCPL = 0;
+      parsed.estimatedLeadsPerMonth = 0;
+      parsed.estimatedROAS = 0;
+      parsed.estimatedCPA = 0;
+      // Zero Google Ads metrics
+      if (parsed.googleAds?.campaignMetrics) {
+        parsed.googleAds.campaignMetrics = { impressions: 0, clicks: 0, ctr: 0, conversions: 0, costPerClick: 0, costPerConversion: 0, spend: 0 };
+      }
+      // Zero Meta Ads metrics
+      if (parsed.metaAds?.campaignMetrics) {
+        parsed.metaAds.campaignMetrics = { impressions: 0, clicks: 0, ctr: 0, conversions: 0, costPerClick: 0, costPerConversion: 0, spend: 0 };
+      }
+
       // Step 4: Create FULL campaign structure in Google Ads
       if (googleAds.isGoogleAdsAvailable() && parsed.googleAds) {
         try {
@@ -451,237 +502,14 @@ export class PaidTrafficAgent extends BaseAgent {
         confidence: parsed.confidence || 85,
       };
     } catch (error: any) {
-      await this.log('run_fallback', { reason: error.message || 'AI failed, using data-driven mock' });
       this.status = 'done';
-
-      const mockData = this.buildDataDrivenMock(offerData, funnelData, contentData, topOpportunity, keywordData, inputs.config);
+      await this.log('run_error', { error: error.message });
       return {
-        success: true,
-        data: mockData,
-        reasoning: mockData.reasoning,
-        confidence: mockData.confidence,
+        success: false,
+        data: { error: error.message, agentId: this.id },
+        reasoning: `Agent failed: ${error.message}. No mock data used.`,
+        confidence: 0,
       };
     }
-  }
-
-  private buildDataDrivenMock(
-    offerData: any,
-    funnelData: any,
-    contentData: any,
-    topOpportunity: any,
-    keywordData: KeywordData[],
-    config: any
-  ): any {
-    const serviceName = offerData.serviceName || 'LeadFlow AI';
-    const niche = topOpportunity.niche || 'B2B Lead Generation';
-    const industry = offerData.icp?.industry || 'B2B SaaS';
-    const decisionMaker = offerData.icp?.decisionMaker || 'VP Marketing';
-    const guarantee = offerData.guarantee || '90-Day Double-or-Refund Guarantee';
-    const transformationPromise = offerData.transformationPromise || 'Double Your Qualified Leads in 90 Days';
-    const landingUrl = funnelData.landingPage?.url || `https://${serviceName.toLowerCase().replace(/\s+/g, '-')}.com`;
-    const bookingUrl = funnelData.bookingCalendar?.url || 'https://calendly.com/leados/strategy-call';
-    const painPoints: string[] = offerData.painPoints || [];
-
-    const monthlyBudget = config?.monthlyBudget || 5000;
-    const googleSplit = config?.googleBudgetSplit || 60;
-    const metaSplit = 100 - googleSplit;
-    const googleDaily = Math.round((monthlyBudget * googleSplit / 100) / 30);
-    const metaDaily = Math.round((monthlyBudget * metaSplit / 100) / 30);
-
-    // Use real keyword data if available, otherwise generate from niche
-    const keywords = keywordData.length > 0
-      ? keywordData.map(kd => ({
-          keyword: kd.keyword,
-          matchType: kd.competition === 'high' ? 'exact' as const : 'phrase' as const,
-          estimatedCPC: kd.cpc,
-          monthlySearchVolume: kd.searchVolume,
-          intent: kd.competition === 'high' ? 'high' as const : 'medium' as const,
-        }))
-      : [
-          { keyword: `${niche.toLowerCase()} service`, matchType: 'exact' as const, estimatedCPC: 8.50, monthlySearchVolume: 2400, intent: 'high' as const },
-          { keyword: `${niche.toLowerCase()} agency`, matchType: 'exact' as const, estimatedCPC: 9.80, monthlySearchVolume: 1800, intent: 'high' as const },
-          { keyword: `best ${niche.toLowerCase()} tools`, matchType: 'phrase' as const, estimatedCPC: 5.40, monthlySearchVolume: 3200, intent: 'medium' as const },
-          { keyword: `AI ${niche.toLowerCase()}`, matchType: 'exact' as const, estimatedCPC: 6.20, monthlySearchVolume: 4800, intent: 'high' as const },
-          { keyword: `automated ${niche.toLowerCase()}`, matchType: 'phrase' as const, estimatedCPC: 4.80, monthlySearchVolume: 2200, intent: 'medium' as const },
-          { keyword: `${niche.toLowerCase()} for ${industry.toLowerCase()}`, matchType: 'exact' as const, estimatedCPC: 7.90, monthlySearchVolume: 1200, intent: 'high' as const },
-        ];
-
-    // Pull ad copies from Content Agent or generate niche-specific ones
-    const googleAdCopies = contentData.adCopies?.google || [];
-    const hooks = contentData.hooks || [];
-
-    // Group keywords into 3 ad groups
-    const highIntent = keywords.filter(k => k.intent === 'high').slice(0, 4);
-    const medIntent = keywords.filter(k => k.intent === 'medium').slice(0, 4);
-    const remaining = keywords.filter(k => !highIntent.includes(k) && !medIntent.includes(k)).slice(0, 3);
-
-    const avgCPC = keywords.length > 0
-      ? Math.round(keywords.reduce((sum, k) => sum + k.estimatedCPC, 0) / keywords.length * 100) / 100
-      : 6.50;
-    const estimatedCPL = Math.round(avgCPC * 4.2 * 100) / 100; // ~4.2 clicks per lead
-    const estimatedLeads = Math.round(monthlyBudget / estimatedCPL);
-
-    return {
-      googleAds: {
-        campaignName: `${serviceName} — Google Search — ${niche}`,
-        keywords,
-        adGroups: [
-          {
-            name: `AG1 — High Intent ${niche}`,
-            theme: 'Direct service/agency search intent',
-            keywords: highIntent.map(k => k.keyword),
-            adCopy: {
-              headlines: [
-                googleAdCopies[0]?.headline || `${niche} — Guaranteed Results`.substring(0, 30),
-                `${transformationPromise}`.substring(0, 30),
-                `AI-Powered ${niche}`.substring(0, 30),
-              ],
-              descriptions: [
-                googleAdCopies[0]?.description || `${serviceName} for ${industry}. ${guarantee}. Book free call.`.substring(0, 90),
-                `${transformationPromise}. Fully autonomous. Performance guaranteed.`.substring(0, 90),
-              ],
-            },
-          },
-          {
-            name: `AG2 — Cost/ROI Focused`,
-            theme: 'Budget-conscious buyers looking for better ROI',
-            keywords: medIntent.map(k => k.keyword),
-            adCopy: {
-              headlines: [
-                googleAdCopies[1]?.headline || `Cut Your CAC by 62% With AI`.substring(0, 30),
-                `Stop Overpaying for Bad Leads`.substring(0, 30),
-                `Lower CPL, More Leads`.substring(0, 30),
-              ],
-              descriptions: [
-                googleAdCopies[1]?.description || `AI qualifies every lead before your CRM. Average 62% CAC reduction for ${industry}.`.substring(0, 90),
-                `From high-cost agencies to AI-powered efficiency. See the ROI difference.`.substring(0, 90),
-              ],
-            },
-          },
-          {
-            name: `AG3 — Technology/Automation`,
-            theme: 'Tech-savvy buyers searching for automation solutions',
-            keywords: remaining.length > 0 ? remaining.map(k => k.keyword) : [`${niche.toLowerCase()} automation`],
-            adCopy: {
-              headlines: [
-                googleAdCopies[2]?.headline || `Autonomous ${niche} Engine`.substring(0, 30),
-                `Replace Manual Marketing`.substring(0, 30),
-                `AI Agents Work 24/7`.substring(0, 30),
-              ],
-              descriptions: [
-                googleAdCopies[2]?.description || `Multi-channel AI pipeline: campaigns, qualification, routing — all automated.`.substring(0, 90),
-                `${serviceName}: the autonomous growth engine for ${industry}. Free strategy call.`.substring(0, 90),
-              ],
-            },
-          },
-        ],
-        negativeKeywords: [
-          'free', 'cheap', 'DIY', 'tutorial', 'how to', 'course', 'template', 'jobs',
-          'hiring', 'intern', 'salary', 'B2C', 'consumer', 'dropshipping', 'freelancer',
-        ],
-        dailyBudget: googleDaily,
-        biddingStrategy: 'Maximize Conversions → Target CPA after 30 conversions',
-        conversionTracking: {
-          conversionActions: ['form_submit', 'calendly_booking', 'phone_call'],
-          trackingMethod: 'Google Ads Conversion Tag via GTM + Enhanced Conversions',
-        },
-        extensions: {
-          sitelinks: [
-            { text: 'See Case Studies', url: `${landingUrl}#social-proof` },
-            { text: 'View Pricing', url: `${landingUrl}#pricing` },
-            { text: 'Book Strategy Call', url: bookingUrl },
-            { text: 'How It Works', url: `${landingUrl}#solution` },
-          ],
-          callouts: [
-            guarantee,
-            'AI-Powered',
-            'Multi-Channel',
-            'Full Attribution',
-            `Built for ${industry}`,
-          ],
-        },
-      },
-      metaAds: {
-        campaignName: `${serviceName} — Meta — Full Funnel — ${niche}`,
-        audiences: [
-          {
-            name: `Cold — ${industry} Interest-Based`,
-            type: 'cold',
-            targeting: `Interests: ${niche}, ${industry}, Marketing Automation, Lead Generation | Job Titles: ${decisionMaker}, CMO, Head of Growth | Company Size: 10-500`,
-            estimatedSize: 2400000,
-          },
-          {
-            name: 'Cold — 1% Lookalike from Converters',
-            type: 'cold',
-            targeting: '1% Lookalike based on form_submit + calendly_booking custom audience | US only',
-            estimatedSize: 2100000,
-          },
-          {
-            name: 'Warm — Website Visitors 30d',
-            type: 'warm',
-            targeting: 'Custom Audience: All website visitors in past 30 days, excluding converters',
-            estimatedSize: 15000,
-          },
-          {
-            name: 'Warm — Video Viewers 50%+',
-            type: 'warm',
-            targeting: 'Custom Audience: Users who watched 50%+ of any video ad in past 60 days',
-            estimatedSize: 8000,
-          },
-          {
-            name: 'Hot — Form Abandoners',
-            type: 'hot',
-            targeting: 'Custom Audience: Visited landing page 2x+ in past 14 days but did not submit form',
-            estimatedSize: 3000,
-          },
-        ],
-        adSets: [
-          {
-            name: `Cold — ${industry} Interests`,
-            audience: `Cold — ${industry} Interest-Based`,
-            dailyBudget: Math.round(metaDaily * 0.5),
-            creatives: [
-              { name: 'Pain Point — Image', format: 'image', hook: hooks[0]?.hook || painPoints[0] || `${decisionMaker}s are switching to AI-powered ${niche.toLowerCase()}` },
-              { name: 'Explainer — Video', format: 'video', hook: hooks[1]?.hook || `We replaced a 12-person team with AI. The results were shocking.` },
-              { name: 'Case Study — Carousel', format: 'carousel', hook: hooks[2]?.hook || `How ${industry} companies are achieving ${transformationPromise.toLowerCase()}` },
-            ],
-          },
-          {
-            name: 'Warm — Retarget Engagers',
-            audience: 'Warm — Website Visitors 30d',
-            dailyBudget: Math.round(metaDaily * 0.3),
-            creatives: [
-              { name: 'Guarantee — Image', format: 'image', hook: `${guarantee}. Zero risk.` },
-              { name: 'Testimonial — UGC Video', format: 'video', hook: `"${transformationPromise}" — hear from our clients` },
-            ],
-          },
-          {
-            name: 'Hot — Convert Abandoners',
-            audience: 'Hot — Form Abandoners',
-            dailyBudget: Math.round(metaDaily * 0.2),
-            creatives: [
-              { name: 'Urgency — Image', format: 'image', hook: hooks[3]?.hook || 'Only 3 spots left this quarter' },
-              { name: 'Direct CTA — Image', format: 'image', hook: `Book your free strategy call now → ${bookingUrl}` },
-            ],
-          },
-        ],
-        pixelEvents: ['PageView', 'ViewContent', 'Lead', 'InitiateCheckout', 'Schedule', 'CompleteRegistration'],
-        placements: ['Facebook Feed', 'Instagram Feed', 'Instagram Stories', 'Instagram Reels', 'Facebook Stories'],
-        dailyBudget: metaDaily,
-      },
-      budgetAllocation: {
-        google: googleSplit,
-        meta: metaSplit,
-        totalMonthlyBudget: monthlyBudget,
-      },
-      projections: {
-        estimatedCPL,
-        estimatedLeadsPerMonth: estimatedLeads,
-        estimatedCPA: Math.round(estimatedCPL * 3.5 * 100) / 100,
-        estimatedROAS: Math.round((monthlyBudget * 4.2 / monthlyBudget) * 100) / 100,
-      },
-      reasoning: `Deployed dual-channel campaign for "${niche}" targeting ${decisionMaker}s at ${industry} companies. Google Ads ($${googleDaily}/day, ${googleSplit}% of budget): ${keywords.length} keywords across 3 ad groups — high intent, cost/ROI, and automation angles. ${keywordData.length > 0 ? `Real keyword data from SerpAPI: avg CPC $${avgCPC}, ${keywordData.length} keywords researched.` : 'Keywords generated from niche analysis.'} Bidding: Maximize Conversions → Target CPA. Meta Ads ($${metaDaily}/day, ${metaSplit}% of budget): full-funnel with 5 audiences (cold/warm/hot) and ${hooks.length > 0 ? hooks.length + ' hooks from Content Agent' : 'niche-specific hooks'}. Estimated blended CPL $${estimatedCPL} → ~${estimatedLeads} leads/month at $${monthlyBudget}/month budget.`,
-      confidence: keywordData.length > 0 ? 86 : 78,
-    };
   }
 }

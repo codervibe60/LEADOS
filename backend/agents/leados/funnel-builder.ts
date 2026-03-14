@@ -78,7 +78,9 @@ Return ONLY valid JSON (no markdown, no explanation outside JSON) with this stru
   ],
   "reasoning": "string",
   "confidence": "number 0-100"
-}`;
+}
+
+CRITICAL DATA INTEGRITY RULE: Do NOT generate projected, estimated, or fabricated performance metrics. Landing page copy, form fields, CRM setup, and tracking configuration are creative/strategic outputs and are expected. However, do NOT invent conversion rates, traffic numbers, visitor counts, lead counts, or any metric that looks like measured data. If a field requires a measured metric and no real data exists, set it to 0 or null. Never fabricate numbers.`;
 
 // ─── Integration Helpers ────────────────────────────────────────────────────
 
@@ -95,14 +97,14 @@ interface HubSpotPipelineConfig {
 }
 
 /**
- * Creates a Calendly event type via API (or returns mock if no key)
+ * Creates a Calendly event type via API (or returns placeholder if no key)
  */
 async function createCalendlyEventType(config: CalendlyEventType): Promise<{ url: string; eventTypeId: string }> {
   const apiKey = process.env.CALENDLY_API_KEY;
   if (!apiKey) {
     return {
       url: `https://calendly.com/leados/${config.name.toLowerCase().replace(/\s+/g, '-')}`,
-      eventTypeId: 'mock-event-type-id',
+      eventTypeId: 'no-calendly-api-key',
     };
   }
 
@@ -140,14 +142,14 @@ async function createCalendlyEventType(config: CalendlyEventType): Promise<{ url
 }
 
 /**
- * Creates HubSpot pipeline and deal stages (or returns mock if no key)
+ * Creates HubSpot pipeline and deal stages (or returns placeholder if no key)
  */
 async function setupHubSpotPipeline(config: HubSpotPipelineConfig): Promise<{ pipelineId: string; stageIds: string[] }> {
   const apiKey = process.env.HUBSPOT_API_KEY;
   if (!apiKey) {
     return {
-      pipelineId: 'mock-pipeline-id',
-      stageIds: config.stages.map((_, i) => `mock-stage-${i}`),
+      pipelineId: 'no-hubspot-api-key',
+      stageIds: config.stages.map((_, i) => `no-hubspot-stage-${i}`),
     };
   }
 
@@ -302,6 +304,22 @@ export class FunnelBuilderAgent extends BaseAgent {
       const response = await this.callClaude(SYSTEM_PROMPT, JSON.stringify(enrichedInput));
       const parsed = this.safeParseLLMJson<any>(response, ['landingPage', 'leadForm']);
 
+      // Force-zero any LLM-fabricated performance metrics
+      // Landing page copy and form fields are creative outputs (OK)
+      // But any conversion rates, traffic numbers, visitor counts are fabricated
+      if (parsed.landingPage) {
+        if (parsed.landingPage.estimatedConversionRate !== undefined) parsed.landingPage.estimatedConversionRate = 0;
+        if (parsed.landingPage.estimatedTraffic !== undefined) parsed.landingPage.estimatedTraffic = 0;
+        if (parsed.landingPage.visitors !== undefined) parsed.landingPage.visitors = 0;
+        if (parsed.landingPage.leads !== undefined) parsed.landingPage.leads = 0;
+      }
+      if (parsed.projectedMetrics !== undefined) {
+        Object.keys(parsed.projectedMetrics).forEach(k => { if (typeof parsed.projectedMetrics[k] === 'number') parsed.projectedMetrics[k] = 0; });
+      }
+      if (parsed.estimatedConversionRate !== undefined) parsed.estimatedConversionRate = 0;
+      if (parsed.estimatedTraffic !== undefined) parsed.estimatedTraffic = 0;
+      if (parsed.totalLeads !== undefined) parsed.totalLeads = 0;
+
       // Step 2: AI succeeded — NOW set up integrations
       await this.log('integrations_starting', { phase: 'Setting up Calendly + HubSpot' });
 
@@ -362,255 +380,14 @@ export class FunnelBuilderAgent extends BaseAgent {
         confidence: parsed.confidence || 85,
       };
     } catch (error: any) {
-      await this.log('run_fallback', { reason: error.message || 'Using mock data' });
       this.status = 'done';
-
-      const mockData = this.getMockOutput(inputs);
+      await this.log('run_error', { error: error.message });
       return {
-        success: true,
-        data: mockData,
-        reasoning: mockData.reasoning,
-        confidence: mockData.confidence,
+        success: false,
+        data: { error: error.message, agentId: this.id },
+        reasoning: `Agent failed: ${error.message}. No mock data used.`,
+        confidence: 0,
       };
     }
-  }
-
-  private getMockOutput(inputs: AgentInput): any {
-    const offerData = inputs.previousOutputs?.['offer-engineering']?.offer
-      || inputs.previousOutputs?.['offer-engineering']
-      || {};
-    const validationData = inputs.previousOutputs?.['validation'] || {};
-
-    const serviceName = offerData.serviceName || 'LeadFlow AI';
-    const headline = offerData.transformationPromise || 'Double Your Qualified Leads in 90 Days';
-    const guarantee = offerData.guarantee || '90-Day Double-or-Refund Guarantee';
-    const icp = offerData.icp || {};
-    const painPoints = offerData.painPoints || [];
-    const pricingTiers = offerData.pricingTiers || [];
-    const uniqueMechanism = offerData.uniqueMechanism || 'Our 13-Agent Orchestration Engine';
-    const positioning = offerData.positioning || '';
-
-    const slug = serviceName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
-
-    return {
-      landingPage: {
-        url: `https://${slug}.com/get-started`,
-        deployTarget: 'Webflow',
-        headline,
-        subheadline: `${icp.industry || 'B2B'} companies use ${serviceName} to build a predictable, scalable pipeline — fully autonomous, performance-guaranteed, and live in 48 hours`,
-        sections: [
-          {
-            type: 'hero',
-            content: {
-              headline,
-              subheadline: `${icp.industry || 'B2B'} companies use ${serviceName} to build a predictable, scalable pipeline — fully autonomous, performance-guaranteed, and live in 48 hours`,
-              cta: 'Book Your Free Strategy Call',
-              ctaSubtext: 'No commitment. See your custom growth plan in 30 minutes.',
-              backgroundStyle: 'gradient-dark',
-              socialProofBar: `500+ ${icp.industry || 'B2B'} companies trust ${serviceName} to fill their pipeline`,
-              guaranteeBadge: guarantee,
-            },
-          },
-          {
-            type: 'painPoints',
-            content: {
-              sectionTitle: 'Sound Familiar?',
-              points: painPoints.length > 0
-                ? painPoints.map((p: string, i: number) => ({
-                    icon: ['chart-down', 'money-burn', 'clock', 'blind', 'bottleneck'][i % 5],
-                    title: p.split(' — ')[0] || p.substring(0, 40),
-                    description: p,
-                  }))
-                : [
-                    { icon: 'chart-down', title: 'Feast-or-Famine Pipeline', description: 'One month you\'re drowning in leads, the next month it\'s crickets. Revenue forecasting feels like guessing.' },
-                    { icon: 'money-burn', title: 'Burning Cash on Bad Leads', description: 'You\'re spending $200+ per lead on channels that produce tire-kickers, not buyers.' },
-                    { icon: 'clock', title: 'Sales Team Wasting Time', description: 'Your reps spend 60% of their day chasing leads that were never qualified to begin with.' },
-                    { icon: 'blind', title: 'Zero Attribution Visibility', description: 'You can\'t tell which channels drive revenue and which just drive vanity metrics.' },
-                    { icon: 'bottleneck', title: 'Founder-Led Sales Bottleneck', description: 'The CEO is still closing most deals because there\'s no repeatable, scalable system.' },
-                  ],
-            },
-          },
-          {
-            type: 'solution',
-            content: {
-              sectionTitle: `Meet ${serviceName}: Your Autonomous Growth Engine`,
-              transformationPromise: headline,
-              uniqueMechanism,
-              features: [
-                'AI-powered multi-channel campaigns (Google, Meta, LinkedIn, Email)',
-                'Autonomous lead scoring and AI voice qualification',
-                'Real-time budget reallocation based on actual revenue attribution',
-                'Full-funnel tracking with multi-touch attribution',
-              ],
-              diagram: 'pipeline-flow-animation',
-            },
-          },
-          {
-            type: 'socialProof',
-            content: {
-              sectionTitle: `Trusted by Growth-Stage ${icp.industry || 'SaaS'} Leaders`,
-              testimonials: [
-                { name: 'Sarah Chen', title: `VP Marketing, TechVentures`, quote: 'We went from 40 qualified leads/month to 127 in the first 90 days. The AI qualification calls alone saved our sales team 25 hours/week.', metric: '3.2x qualified leads' },
-                { name: 'Mike Rodriguez', title: 'CEO, GrowthLab', quote: 'I was skeptical about AI lead gen, but the results speak for themselves. Our CAC dropped from $340 to $128 while lead volume tripled.', metric: '62% lower CAC' },
-                { name: 'Emily Watson', title: 'Head of Growth, StartupForge', quote: 'The attribution dashboard finally showed us where our money was actually working. We killed 3 underperforming channels and reinvested into what converts.', metric: '4.2x ROAS' },
-              ],
-              logos: ['TechVentures', 'GrowthLab', 'StartupForge', 'CloudScale', 'RevOps', 'DataDrive'],
-              caseStudyLink: '/case-studies',
-            },
-          },
-          {
-            type: 'pricing',
-            content: {
-              sectionTitle: 'Simple, Transparent Pricing',
-              tiers: pricingTiers.length > 0
-                ? pricingTiers.map((tier: any, i: number) => ({
-                    name: tier.name,
-                    price: typeof tier.price === 'number' ? `$${tier.price.toLocaleString()}/mo` : tier.price,
-                    highlight: i === 1,
-                    badge: i === 1 ? 'Most Popular' : undefined,
-                    cta: i === 0 ? 'Get Started' : i === 1 ? 'Book Strategy Call' : 'Talk to Sales',
-                    features: tier.features || [],
-                  }))
-                : [
-                    { name: 'Starter', price: '$2,997/mo', highlight: false, cta: 'Get Started', features: ['5 active campaigns', 'AI lead scoring', '500 outbound emails/mo', '1 landing page variant', 'Weekly reports', 'CRM integration', 'Email support'] },
-                    { name: 'Growth', price: '$5,997/mo', highlight: true, badge: 'Most Popular', cta: 'Book Strategy Call', features: ['Unlimited campaigns', 'AI voice qualification', '2,500 emails + LinkedIn', '5 landing page variants', 'Multi-touch attribution', 'Auto budget optimization', 'Dedicated success manager'] },
-                    { name: 'Enterprise', price: '$9,997/mo', highlight: false, cta: 'Talk to Sales', features: ['Everything in Growth', 'Custom AI scripts', '10,000 emails + LinkedIn', 'White-glove funnel design', 'Custom CRM workflows', 'Hourly optimization', '1-hour response SLA'] },
-                  ],
-              guarantee,
-            },
-          },
-          {
-            type: 'faq',
-            content: {
-              sectionTitle: 'Frequently Asked Questions',
-              questions: [
-                { q: 'How long until I see results?', a: `Most clients see their first qualified leads within 7-14 days of launch. Our ${guarantee.split(':')[0] || '90-day guarantee'} is based on a measurable improvement in qualified lead volume.` },
-                { q: 'Do I need to provide content or copy?', a: 'No — our Content & Creative Agent produces all ad copies, email sequences, landing page content, and video scripts autonomously based on your offer and ICP.' },
-                { q: 'What if the AI calls annoy my prospects?', a: 'Our AI qualification calls are warm — they only go to leads who have already expressed interest by filling out a form or engaging with your content. Call scripts are fully customizable and TCPA-compliant.' },
-                { q: 'Can I use my existing CRM?', a: 'Yes — we integrate with HubSpot, GoHighLevel, and Salesforce. Data syncs bidirectionally in real-time.' },
-                { q: 'What happens after the guarantee period?', a: 'You continue month-to-month with no long-term contract. Most clients stay because the ROI is clear and measurable.' },
-                { q: `How is ${serviceName} different from hiring an agency?`, a: `${positioning || 'Agencies charge similar retainers for manual work with opaque results. ' + serviceName + ' runs 24/7 across all channels with full attribution transparency — and we guarantee results.'}` },
-              ],
-            },
-          },
-          {
-            type: 'cta',
-            content: {
-              headline: 'Ready to Transform Your Pipeline?',
-              subheadline: `Book a free 30-minute strategy call. We'll show you exactly how ${serviceName} will work for your business — with a custom growth projection.`,
-              ctaButton: 'Book Your Free Strategy Call',
-              ctaSubtext: 'Limited spots available — we only onboard 10 new clients per month',
-              urgency: true,
-            },
-          },
-        ],
-        cta: 'Book Your Free Strategy Call',
-        seoMeta: {
-          title: `${serviceName} — ${headline}`,
-          description: `${icp.industry || 'B2B'} companies use ${serviceName} for autonomous, AI-powered lead generation. ${guarantee}.`,
-          ogImage: `/og/${slug}.png`,
-        },
-      },
-      leadForm: {
-        fields: [
-          { name: 'firstName', type: 'text', label: 'First Name', placeholder: 'John', required: true },
-          { name: 'lastName', type: 'text', label: 'Last Name', placeholder: 'Smith', required: true },
-          { name: 'workEmail', type: 'email', label: 'Work Email', placeholder: 'john@company.com', required: true },
-          { name: 'company', type: 'text', label: 'Company', placeholder: 'Acme Inc', required: true },
-          { name: 'phone', type: 'phone', label: 'Phone Number', placeholder: '+1 (555) 000-0000', required: false },
-          { name: 'monthlyMarketingBudget', type: 'select', label: 'Monthly Marketing Budget', placeholder: 'Select range', required: true, options: ['Under $5K', '$5K-$10K', '$10K-$25K', '$25K-$50K', '$50K+'] },
-          { name: 'currentMonthlyLeads', type: 'select', label: 'Current Monthly Leads', placeholder: 'Select range', required: false, options: ['0-50', '50-200', '200-500', '500+'] },
-        ],
-        submitButtonText: 'Book Your Free Strategy Call',
-        submitAction: 'Redirect to Calendly booking page with form data pre-filled, create HubSpot contact, fire Meta Lead event + Google Ads conversion',
-        successMessage: 'Thanks! You\'ll be redirected to book your strategy call in a moment.',
-        webhookUrl: '/api/webhooks/lead-capture',
-      },
-      bookingCalendar: {
-        provider: 'Calendly',
-        url: `https://calendly.com/leados/${slug}-strategy-call`,
-        meetingType: 'Strategy Call',
-        meetingDuration: 30,
-        bufferTime: 15,
-        availability: 'Monday-Friday, 9:00 AM - 5:00 PM EST, excluding US holidays',
-        preCallQuestions: [
-          'What is your biggest lead generation challenge right now?',
-          'What is your current monthly marketing spend?',
-          'Have you used AI tools for sales or marketing before?',
-        ],
-        confirmationRedirect: `https://${slug}.com/thank-you`,
-      },
-      crmIntegration: {
-        provider: 'HubSpot',
-        pipeline: `${serviceName} — Acquisition Pipeline`,
-        stages: [
-          'New Lead',
-          'Form Submitted',
-          'Call Booked',
-          'AI Qualified',
-          'Strategy Call Completed',
-          'Proposal Sent',
-          'Negotiation',
-          'Closed Won',
-          'Closed Lost',
-        ],
-        contactProperties: [
-          'Lead Source',
-          'Monthly Marketing Budget',
-          'Current Monthly Leads',
-          'Lead Score',
-          'Qualification Outcome',
-          'UTM Source',
-          'UTM Medium',
-          'UTM Campaign',
-        ],
-        lifecycleStages: [
-          'subscriber → Form Submitted',
-          'lead → Call Booked',
-          'marketingqualifiedlead → AI Qualified',
-          'salesqualifiedlead → Strategy Call Completed',
-          'opportunity → Proposal Sent',
-          'customer → Closed Won',
-        ],
-        automations: [
-          { trigger: 'Form Submitted', action: 'Create contact in HubSpot, assign to pipeline, send confirmation email' },
-          { trigger: 'Call Booked', action: 'Update deal stage, notify sales rep via Slack, send calendar confirmation' },
-          { trigger: 'AI Qualified (score >= 70)', action: 'Move to Strategy Call stage, assign to senior rep, send prep materials' },
-          { trigger: 'AI Qualified (score < 40)', action: 'Move to nurture sequence, tag as low-intent, enroll in drip campaign' },
-          { trigger: 'Strategy Call Completed', action: 'Generate proposal, update deal value from call notes' },
-          { trigger: 'No-Show', action: 'Send reschedule email, add to follow-up task queue' },
-          { trigger: 'Closed Won', action: 'Trigger onboarding workflow, create Stripe subscription, notify success team' },
-          { trigger: 'Closed Lost', action: 'Log reason, enroll in win-back sequence after 90 days' },
-        ],
-      },
-      tracking: {
-        gtmContainerId: 'GTM-LEADFLOW',
-        metaPixelId: '123456789012345',
-        googleAdsConversionId: 'AW-987654321',
-        events: [
-          'page_view',
-          'scroll_depth_25',
-          'scroll_depth_50',
-          'scroll_depth_75',
-          'scroll_depth_90',
-          'cta_click',
-          'form_start',
-          'form_field_focus',
-          'form_submit',
-          'calendly_page_view',
-          'calendly_booking',
-          'lead',
-          'qualified_lead',
-        ],
-        utmParams: ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term'],
-      },
-      pages: [
-        { type: 'landing', name: 'Main Landing Page', url: `/${slug}`, description: 'Primary conversion page with hero, pain points, solution, pricing, FAQ, and CTA sections' },
-        { type: 'booking', name: 'Demo Booking Page', url: `/${slug}/book`, description: 'Calendly embed page with pre-call questions and form data pass-through' },
-        { type: 'thank-you', name: 'Confirmation Page', url: `/${slug}/thank-you`, description: 'Post-booking confirmation with pre-call video, case study download, and what-to-expect guide' },
-      ],
-      reasoning: `Landing page structured around the pain-agitate-solve framework optimized for ${icp.industry || 'B2B SaaS'} buyer psychology. Hero section leads with the transformation promise "${headline}" and social proof bar for immediate credibility. Pain points are specific and emotionally resonant to the ICP (${icp.decisionMaker || 'VP Marketing / Head of Growth'}). Pricing section uses the Growth tier as the highlighted "Most Popular" option to anchor buyers at the mid-tier. FAQ handles the top 6 objections identified from the ICP analysis. Lead form kept to 7 fields to minimize friction while capturing budget qualification data for lead scoring. Calendly integration provides instant booking to reduce drop-off between form submit and call. HubSpot pipeline configured with 9 stages matching the LeadOS qualification funnel, with automations for lifecycle stage transitions. Full tracking stack (GTM + Meta Pixel + Google Ads) ensures multi-touch attribution from first click to close. Validation confidence: ${validationData.confidence || 'N/A'}%, LTV/CAC: ${validationData.ltvCacRatio || 'N/A'}x.`,
-      confidence: 87,
-    };
   }
 }

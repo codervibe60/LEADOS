@@ -44,7 +44,9 @@ Return ONLY valid JSON (no markdown, no explanation outside JSON) with this stru
   },
   "reasoning": "string — detailed reasoning for the decision",
   "confidence": "number 0-100"
-}`;
+}
+
+CRITICAL DATA INTEGRITY RULE: Do NOT generate projected, estimated, or fabricated metrics that look like real measured data. Your scores (marketDemand, competitiveSaturation, pricingFeasibility, cacVsLtv) are subjective assessments and are expected — but clearly base them on the upstream data provided. For cacEstimate and ltvEstimate: these are directional estimates for decision-making, NOT measured values. Label them clearly as estimates in your reasoning. Do NOT invent specific market size numbers, revenue figures, or conversion rates. If the upstream data does not provide a data point, say "not_measured" or use 0 rather than fabricating a precise-looking number. Never invent numbers.`;
 
 export class ValidationAgent extends BaseAgent {
   constructor() {
@@ -66,6 +68,25 @@ export class ValidationAgent extends BaseAgent {
       });
       const response = await this.callClaude(SYSTEM_PROMPT, userMessage);
       const parsed = this.safeParseLLMJson<any>(response, ['decision', 'scores']);
+
+      // Force-label CAC/LTV estimates — these are LLM directional guesses, not measured data
+      if (parsed.cacEstimate !== undefined) {
+        parsed._cacEstimateLabel = 'llm_estimate';
+        parsed.cacEstimate = 0;
+      }
+      if (parsed.ltvEstimate !== undefined) {
+        parsed._ltvEstimateLabel = 'llm_estimate';
+        parsed.ltvEstimate = 0;
+      }
+      if (parsed.ltvCacRatio !== undefined) {
+        parsed._ltvCacRatioLabel = 'llm_estimate';
+        parsed.ltvCacRatio = 0;
+      }
+      // Zero any other fabricated measured metrics
+      if (parsed.estimatedRevenue !== undefined) parsed.estimatedRevenue = 0;
+      if (parsed.projectedConversions !== undefined) parsed.projectedConversions = 0;
+      if (parsed.estimatedMarketSize !== undefined) parsed.estimatedMarketSize = 'not_measured';
+
       this.status = 'done';
       await this.log('run_completed', { output: parsed });
       return {
@@ -76,120 +97,13 @@ export class ValidationAgent extends BaseAgent {
       };
     } catch (error: any) {
       this.status = 'done';
-      await this.log('run_fallback', { reason: 'Using mock data' });
-      const mockData = this.getMockOutput(inputs);
+      await this.log('run_error', { error: error.message });
       return {
-        success: true,
-        data: mockData,
-        reasoning: 'Completed with mock data',
-        confidence: 80,
+        success: false,
+        data: { error: error.message, agentId: this.id },
+        reasoning: `Agent failed: ${error.message}. No mock data used.`,
+        confidence: 0,
       };
     }
-  }
-
-  private getMockOutput(inputs: AgentInput): any {
-    const offerData = inputs.previousOutputs?.['offer-engineering'];
-    const serviceResearch = inputs.previousOutputs?.['service-research'];
-    const serviceName = offerData?.data?.offer?.serviceName || 'LeadFlow AI';
-
-    // Extract upstream scores to make a data-driven decision
-    const topOpp = serviceResearch?.data?.opportunities?.[0];
-    const demandScore = topOpp?.demandScore ?? 75;
-    const competitionScore = topOpp?.competitionScore ?? 50;
-    const monetizationScore = topOpp?.monetizationScore ?? 70;
-    const trendsScore = topOpp?.googleTrendsScore ?? 60;
-
-    const starterPrice = offerData?.data?.offer?.pricingTiers?.[0]?.price ?? 2997;
-    const growthPrice = offerData?.data?.offer?.pricingTiers?.[1]?.price ?? 5997;
-
-    // Calculate realistic CAC and LTV from upstream data
-    const cacEstimate = Math.round(starterPrice * 0.04 * (1 + competitionScore / 100));
-    const avgMonthlyRevenue = (starterPrice + growthPrice) / 2;
-    const retentionMonths = demandScore > 80 ? 12 : demandScore > 60 ? 9 : 6;
-    const ltvEstimate = Math.round(avgMonthlyRevenue * retentionMonths * 0.7);
-    const ltvCacRatio = Math.round((ltvEstimate / cacEstimate) * 10) / 10;
-
-    // Score calculations
-    const marketDemand = Math.round((demandScore * 0.6 + trendsScore * 0.4));
-    const pricingFeasibility = monetizationScore > 80 && demandScore > 70 ? 90 : monetizationScore > 60 ? 75 : 55;
-    const cacVsLtvScore = ltvCacRatio > 10 ? 95 : ltvCacRatio > 5 ? 85 : ltvCacRatio > 3 ? 70 : 40;
-    const riskScore = Math.round(competitionScore * 0.4 + (100 - demandScore) * 0.3 + (100 - monetizationScore) * 0.3);
-
-    // Data-driven GO/NO-GO decision
-    let decision: 'GO' | 'NO-GO' | 'CONDITIONAL' = 'GO';
-    const reasons: string[] = [];
-
-    if (ltvCacRatio < 3) {
-      decision = 'NO-GO';
-      reasons.push(`LTV/CAC ratio of ${ltvCacRatio}x is below the 3x minimum threshold`);
-    }
-    if (demandScore < 50) {
-      decision = decision === 'NO-GO' ? 'NO-GO' : 'CONDITIONAL';
-      reasons.push(`Market demand score of ${demandScore} indicates weak demand`);
-    }
-    if (competitionScore > 80) {
-      decision = decision === 'NO-GO' ? 'NO-GO' : 'CONDITIONAL';
-      reasons.push(`Competition score of ${competitionScore} indicates oversaturated market`);
-    }
-    if (riskScore > 60) {
-      decision = decision === 'GO' ? 'CONDITIONAL' : decision;
-      reasons.push(`Risk score of ${riskScore} is above acceptable threshold`);
-    }
-
-    const riskFactors = [
-      {
-        factor: `${topOpp?.niche || 'This market'} is an emerging category — buyer education may be required`,
-        severity: demandScore > 80 ? 'low' as const : 'medium' as const,
-        mitigation: 'Lead with case studies and ROI calculators in the funnel. Use comparison pages against traditional agencies.',
-      },
-      {
-        factor: `Pricing at $${starterPrice.toLocaleString()}/mo Starter may exclude smaller companies`,
-        severity: starterPrice > 5000 ? 'high' as const : starterPrice > 2000 ? 'low' as const : 'low' as const,
-        mitigation: 'Higher price filters for serious buyers with budget, improving lead quality and reducing churn.',
-      },
-      {
-        factor: 'Dependence on third-party APIs (Google Ads, Meta, Instantly) introduces platform risk',
-        severity: 'medium' as const,
-        mitigation: 'Abstraction layer already built into LeadOS architecture. Can swap providers without business logic changes.',
-      },
-      {
-        factor: 'Money-back guarantee creates cash flow risk if early cohorts underperform',
-        severity: 'high' as const,
-        mitigation: 'Set aside 20% reserve fund for first 6 months. Monitor guarantee claim rate weekly — if >15%, pause acquisition and fix delivery.',
-      },
-      {
-        factor: `Competition score of ${competitionScore} — ${competitionScore > 60 ? 'market is moderately crowded' : 'manageable competition level'}`,
-        severity: competitionScore > 70 ? 'high' as const : competitionScore > 50 ? 'medium' as const : 'low' as const,
-        mitigation: 'Differentiate through automation depth and performance guarantees that manual agencies cannot match.',
-      },
-    ];
-
-    const trendDirection = trendsScore > 70 ? 'rising' : trendsScore > 50 ? 'stable' : 'declining';
-
-    return {
-      decision,
-      scores: { marketDemand, competitiveSaturation: competitionScore, pricingFeasibility, cacVsLtv: cacVsLtvScore },
-      cacEstimate,
-      ltvEstimate,
-      ltvCacRatio,
-      riskScore,
-      riskFactors,
-      trendAnalysis: {
-        googleTrendsScore: trendsScore,
-        trendDirection,
-        risingQueriesCount: topOpp?.risingQueries?.length ?? 3,
-        marketMomentum: trendDirection === 'rising'
-          ? `Strong upward momentum. Search interest at ${trendsScore}/100 with ${topOpp?.risingQueries?.length ?? 0} rising breakout queries.`
-          : trendDirection === 'stable'
-          ? `Stable market demand at ${trendsScore}/100. Mature market with consistent search interest.`
-          : `Declining search interest at ${trendsScore}/100. Consider pivoting to adjacent niche.`,
-      },
-      reasoning: decision === 'GO'
-        ? `${serviceName} passes all validation gates. Market demand: ${marketDemand}, LTV/CAC: ${ltvCacRatio}x (threshold: 3x), risk score: ${riskScore}. Google Trends confirms ${trendDirection} interest at ${trendsScore}/100. Recommendation: PROCEED.`
-        : decision === 'CONDITIONAL'
-        ? `${serviceName} shows potential but has concerns: ${reasons.join('; ')}. LTV/CAC: ${ltvCacRatio}x, risk score: ${riskScore}. Recommendation: PROCEED WITH CAUTION — address flagged issues before scaling.`
-        : `${serviceName} does NOT pass validation. Blockers: ${reasons.join('; ')}. LTV/CAC: ${ltvCacRatio}x is below 3x minimum. Recommendation: DO NOT PROCEED — revisit offer engineering.`,
-      confidence: decision === 'GO' ? 91 : decision === 'CONDITIONAL' ? 72 : 88,
-    };
   }
 }

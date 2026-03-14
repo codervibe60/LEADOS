@@ -57,7 +57,9 @@ RESPONSIBILITY 7: COMPLIANCE
 
 Return ONLY valid JSON (no markdown, no explanation outside JSON).
 
-Data quality is the foundation of everything — bad data means bad scoring, bad routing, and wasted ad spend. Be aggressive with cleanup but conservative with merges (never lose data).`;
+Data quality is the foundation of everything — bad data means bad scoring, bad routing, and wasted ad spend. Be aggressive with cleanup but conservative with merges (never lose data).
+
+CRITICAL DATA INTEGRITY RULE: Do NOT generate projected, estimated, or fabricated metrics. Deduplication rules, normalization rules, validation checks, enrichment config, lifecycle management rules, and compliance policies are strategic outputs and are expected. However, for any counts or statistics (duplicates found, records normalized, fields enriched, etc.): ONLY report numbers from real CRM data (HubSpot contacts) or real enrichment API responses (Apollo/Clearbit) provided in the input. If no real CRM data exists, set all counts to 0. Do NOT invent fictional contact records, deduplication results, or enrichment outcomes. Never fabricate numbers that look like measured data.`;
 
 export class CRMHygieneAgent extends BaseAgent {
   constructor() {
@@ -185,6 +187,64 @@ export class CRMHygieneAgent extends BaseAgent {
       const response = await this.callClaude(SYSTEM_PROMPT, userMessage);
       const parsed = this.safeParseLLMJson<any>(response, ['deduplication', 'normalization']);
 
+      // Force-zero ALL LLM-fabricated statistics — only real CRM/API data counts
+      const hasRealCrmData = realContacts.length > 0;
+
+      // Deduplication stats — no real dedup was performed in code, LLM fabricates these
+      if (parsed.deduplication) {
+        if (parsed.deduplication.duplicatesFound !== undefined) parsed.deduplication.duplicatesFound = 0;
+        if (parsed.deduplication.duplicatesMerged !== undefined) parsed.deduplication.duplicatesMerged = 0;
+        if (parsed.deduplication.totalRecordsScanned !== undefined) parsed.deduplication.totalRecordsScanned = hasRealCrmData ? realContacts.length : 0;
+        if (parsed.deduplication.summary) {
+          Object.keys(parsed.deduplication.summary).forEach(k => { if (typeof parsed.deduplication.summary[k] === 'number') parsed.deduplication.summary[k] = 0; });
+        }
+      }
+
+      // Normalization stats — no real normalization was performed
+      if (parsed.normalization) {
+        if (parsed.normalization.recordsNormalized !== undefined) parsed.normalization.recordsNormalized = 0;
+        if (parsed.normalization.fieldsUpdated !== undefined) parsed.normalization.fieldsUpdated = 0;
+        if (parsed.normalization.summary) {
+          Object.keys(parsed.normalization.summary).forEach(k => { if (typeof parsed.normalization.summary[k] === 'number') parsed.normalization.summary[k] = 0; });
+        }
+      }
+
+      // Validation stats — no real validation was performed
+      if (parsed.validation) {
+        if (parsed.validation.totalValidated !== undefined) parsed.validation.totalValidated = 0;
+        if (parsed.validation.invalidRecords !== undefined) parsed.validation.invalidRecords = 0;
+        if (parsed.validation.quarantined !== undefined) parsed.validation.quarantined = 0;
+        if (parsed.validation.summary) {
+          Object.keys(parsed.validation.summary).forEach(k => { if (typeof parsed.validation.summary[k] === 'number') parsed.validation.summary[k] = 0; });
+        }
+      }
+
+      // Enrichment stats — only real if APIs were connected
+      const apolloAvailable = !!process.env.APOLLO_API_KEY;
+      const clearbitAvailable = !!process.env.CLEARBIT_API_KEY;
+      if (parsed.enrichment) {
+        if (!apolloAvailable && !clearbitAvailable) {
+          if (parsed.enrichment.totalEnriched !== undefined) parsed.enrichment.totalEnriched = 0;
+          if (parsed.enrichment.averageCompletenessScore !== undefined) parsed.enrichment.averageCompletenessScore = 0;
+          if (parsed.enrichment.summary) {
+            Object.keys(parsed.enrichment.summary).forEach(k => { if (typeof parsed.enrichment.summary[k] === 'number') parsed.enrichment.summary[k] = 0; });
+          }
+        } else {
+          // Real enrichment happened — use actual count
+          if (parsed.enrichment.totalEnriched !== undefined) parsed.enrichment.totalEnriched = enrichedCount;
+        }
+      }
+
+      // Overall summary — force to real counts
+      if (parsed.summary) {
+        Object.keys(parsed.summary).forEach(k => {
+          if (typeof parsed.summary[k] === 'number') parsed.summary[k] = 0;
+        });
+        // Set real values we actually know
+        parsed.summary.totalContacts = hasRealCrmData ? realContacts.length : 0;
+        parsed.summary.totalEnriched = enrichedCount;
+      }
+
       this.status = 'done';
       await this.log('run_completed', { output: parsed });
       return {
@@ -195,253 +255,13 @@ export class CRMHygieneAgent extends BaseAgent {
       };
     } catch (error: any) {
       this.status = 'done';
-      await this.log('run_fallback', { reason: error.message || 'Using mock data' });
-      const mockData = this.getMockOutput(inputs);
+      await this.log('run_error', { error: error.message });
       return {
-        success: true,
-        data: mockData,
-        reasoning: mockData.reasoning,
-        confidence: mockData.confidence,
+        success: false,
+        data: { error: error.message, agentId: this.id },
+        reasoning: `Agent failed: ${error.message}. No mock data used.`,
+        confidence: 0,
       };
     }
-  }
-
-  private getMockOutput(inputs: AgentInput): any {
-    const previousOutputs = inputs.previousOutputs || {};
-    const routingData = previousOutputs['sales-routing'] || {};
-    const trackingData = previousOutputs['tracking-attribution'] || {};
-
-    const totalRecords = 1247;
-    const duplicatesFound = 23;
-
-    const deduplication = {
-      totalRecords,
-      duplicatesFound,
-      duplicatesRemoved: duplicatesFound,
-      duplicateRate: parseFloat(((duplicatesFound / totalRecords) * 100).toFixed(2)),
-      accuracy: 99.4,
-      mergeStrategy: 'Keep most recent record, consolidate all interactions and touchpoints',
-      matchingCriteria: [
-        { field: 'email', type: 'exact', weight: 1.0, matchesFound: 12 },
-        { field: 'phone', type: 'normalized (E.164)', weight: 0.9, matchesFound: 5 },
-        { field: 'company + name', type: 'fuzzy (Levenshtein < 3)', weight: 0.8, matchesFound: 4 },
-        { field: 'linkedin_url', type: 'exact', weight: 1.0, matchesFound: 2 },
-      ],
-      duplicateExamples: [
-        {
-          kept: { email: 'sarah.chen@techventures.io', lastUpdated: '2026-03-08', interactions: 12 },
-          removed: { email: 'schen@techventures.io', lastUpdated: '2026-02-15', interactions: 3 },
-          matchType: 'email alias + same company domain',
-          confidence: 97,
-        },
-        {
-          kept: { email: 'mike.r@growthlab.co', lastUpdated: '2026-03-07', interactions: 8 },
-          removed: { email: 'mike.rodriguez@growthlab.co', lastUpdated: '2026-02-20', interactions: 1 },
-          matchType: 'fuzzy name + same company domain',
-          confidence: 94,
-        },
-        {
-          kept: { email: 'jdoe@acmecorp.com', lastUpdated: '2026-03-09', interactions: 5 },
-          removed: { email: 'john.doe@acmecorp.com', lastUpdated: '2026-01-30', interactions: 2 },
-          matchType: 'exact company + fuzzy name match',
-          confidence: 92,
-        },
-      ],
-    };
-
-    const normalization = {
-      recordsNormalized: totalRecords,
-      fieldsStandardized: ['phone_format', 'email_lowercase', 'company_name_trim', 'country_code', 'job_title'],
-      changes: {
-        phone: { count: 342, format: 'E.164' },
-        email: { count: 89, format: 'lowercase + trim' },
-        company: { count: 156, format: 'trim + suffix standardize' },
-        country: { count: 234, format: 'ISO 3166-1 alpha-2' },
-        jobTitle: { count: 178, format: 'canonical mapping' },
-      },
-      examples: [
-        { field: 'phone', before: '(555) 123-4567', after: '+15551234567' },
-        { field: 'phone', before: '555.987.6543', after: '+15559876543' },
-        { field: 'email', before: 'Sarah.Chen@TechVentures.IO', after: 'sarah.chen@techventures.io' },
-        { field: 'company', before: '  GrowthLab Agency, Inc  ', after: 'GrowthLab Agency Inc.' },
-        { field: 'country', before: 'United States of America', after: 'US' },
-        { field: 'country', before: 'United Kingdom', after: 'GB' },
-        { field: 'jobTitle', before: 'VP of Sales & Marketing', after: 'VP Sales & Marketing' },
-        { field: 'jobTitle', before: 'Mktg Director', after: 'Marketing Director' },
-      ],
-    };
-
-    const validation = {
-      totalValidated: totalRecords,
-      validRecords: 1225,
-      invalidRecords: 22,
-      validationRate: 98.2,
-      invalidEmails: [
-        { email: 'user@@domain.com', reason: 'syntax error — double @' },
-        { email: 'test@nonexistent-domain-xyz.com', reason: 'MX record not found' },
-        { email: 'noreply@', reason: 'syntax error — missing domain' },
-      ],
-      invalidPhones: [
-        { phone: '+1555', reason: 'too few digits (4)' },
-        { phone: '+99123456789', reason: 'invalid country code (+99)' },
-        { phone: '12345', reason: 'too few digits (5)' },
-        { phone: '+44abc1234567', reason: 'contains non-numeric characters' },
-      ],
-      missingRequiredFields: {
-        company: 5,
-        phone: 4,
-        source: 3,
-        name: 0,
-        email: 0,
-      },
-      quarantinedRecords: 8,
-    };
-
-    const enrichment = {
-      totalEligible: 1050,
-      recordsEnriched: 892,
-      enrichmentRate: 84.9,
-      sources: ['Apollo.io', 'Clearbit'],
-      fieldsAdded: ['company_revenue', 'employee_count', 'industry', 'tech_stack', 'linkedin_url', 'funding_stage'],
-      breakdown: {
-        company_revenue: { enriched: 845, source: 'Clearbit', coverage: '94.7%' },
-        employee_count: { enriched: 892, source: 'Apollo.io', coverage: '100%' },
-        industry: { enriched: 876, source: 'Apollo.io', coverage: '98.2%' },
-        tech_stack: { enriched: 723, source: 'Clearbit', coverage: '81.1%' },
-        linkedin_url: { enriched: 801, source: 'Apollo.io', coverage: '89.8%' },
-        funding_stage: { enriched: 654, source: 'Clearbit', coverage: '73.3%' },
-      },
-      enrichmentExamples: [
-        {
-          lead: 'sarah.chen@techventures.io',
-          before: { company: 'TechVentures', industry: null, employees: null },
-          after: { company: 'TechVentures', industry: 'SaaS', employees: 85, revenue: '$12M', techStack: ['React', 'AWS', 'Stripe'] },
-        },
-        {
-          lead: 'jdoe@acmecorp.com',
-          before: { company: 'Acme Corp', industry: null, employees: null },
-          after: { company: 'Acme Corp', industry: 'Manufacturing', employees: 450, revenue: '$78M', techStack: ['SAP', 'Salesforce'] },
-        },
-      ],
-    };
-
-    const lifecycleUpdates = [
-      { leadId: 'lead_001', leadName: 'Sarah Chen', from: 'new', to: 'contacted', trigger: 'email_opened', reason: 'Email opened 3x in 24h', timestamp: '2026-03-08T14:00:00Z' },
-      { leadId: 'lead_003', leadName: 'Mike Rodriguez', from: 'contacted', to: 'engaged', trigger: 'form_submit', reason: 'Downloaded pricing guide + visited 5 pages', timestamp: '2026-03-08T15:30:00Z' },
-      { leadId: 'lead_005', leadName: 'Jennifer Park', from: 'engaged', to: 'qualified', trigger: 'call_completed', reason: 'AI qualification call scored 87/100 (BANT)', timestamp: '2026-03-08T16:00:00Z' },
-      { leadId: 'lead_008', leadName: 'David Kim', from: 'qualified', to: 'booked', trigger: 'meeting_booked', reason: 'Meeting scheduled via Calendly for March 12', timestamp: '2026-03-09T09:00:00Z' },
-      { leadId: 'lead_012', leadName: 'Amanda Liu', from: 'booked', to: 'won', trigger: 'payment_confirmed', reason: 'Stripe payment confirmed — $2,997/mo plan', timestamp: '2026-03-09T10:00:00Z' },
-      { leadId: 'lead_015', leadName: 'Robert Torres', from: 'contacted', to: 'churned', trigger: 'no_response', reason: 'No engagement after 14 days and 5 touchpoints', timestamp: '2026-03-09T11:00:00Z' },
-      { leadId: 'lead_018', leadName: 'Lisa Wang', from: 'new', to: 'engaged', trigger: 'ad_click_form', reason: 'Clicked Meta ad → submitted lead form → opened follow-up email', timestamp: '2026-03-09T12:00:00Z' },
-    ];
-
-    const validStages = ['new', 'contacted', 'engaged', 'qualified', 'booked', 'won', 'churned'];
-
-    const interactions = [
-      { type: 'email_sent', leadId: 'lead_001', channel: 'email', summary: 'Initial outreach email — B2B SaaS Lead Gen intro', timestamp: '2026-03-07T09:00:00Z' },
-      { type: 'email_opened', leadId: 'lead_001', channel: 'email', summary: 'Opened intro email (3 times)', timestamp: '2026-03-08T14:00:00Z' },
-      { type: 'page_visit', leadId: 'lead_003', channel: 'web', summary: 'Visited pricing page, case studies, and about page', timestamp: '2026-03-08T14:30:00Z' },
-      { type: 'form_submit', leadId: 'lead_003', channel: 'web', summary: 'Downloaded pricing guide via gated form', timestamp: '2026-03-08T15:30:00Z' },
-      { type: 'call_completed', leadId: 'lead_005', channel: 'phone', summary: 'AI qualification call — 4m 23s, BANT score 87', timestamp: '2026-03-08T16:00:00Z' },
-      { type: 'meeting_booked', leadId: 'lead_008', channel: 'calendly', summary: 'Discovery call booked for March 12, 2pm ET', timestamp: '2026-03-09T09:00:00Z' },
-      { type: 'ad_click', leadId: 'lead_018', channel: 'meta_ads', summary: 'Clicked Meta lookalike campaign — B2B SaaS ad', timestamp: '2026-03-09T11:45:00Z' },
-      { type: 'payment', leadId: 'lead_012', channel: 'stripe', summary: 'Payment confirmed — $2,997/mo Growth plan', timestamp: '2026-03-09T10:00:00Z' },
-      { type: 'linkedin_connect', leadId: 'lead_020', channel: 'linkedin', summary: 'Accepted LinkedIn connection request', timestamp: '2026-03-09T13:00:00Z' },
-      { type: 'email_replied', leadId: 'lead_022', channel: 'email', summary: 'Replied to cold email — interested in demo', timestamp: '2026-03-09T14:00:00Z' },
-    ];
-
-    const interactionsByType = {
-      email_sent: 156,
-      email_opened: 89,
-      email_replied: 23,
-      page_visit: 342,
-      form_submit: 47,
-      call_completed: 18,
-      meeting_booked: 12,
-      ad_click: 234,
-      payment: 3,
-      linkedin_connect: 15,
-      chat_message: 8,
-    };
-
-    const totalInteractions = Object.values(interactionsByType).reduce((s, v) => s + v, 0);
-
-    const compliance = {
-      gdpr: {
-        compliant: true,
-        consentRecordsTracked: 1247,
-        erasureRequestsProcessed: 2,
-        erasureRequestsPending: 0,
-        dataPortabilityRequests: 1,
-        consentRate: 98.7,
-        lastAudit: '2026-03-09T00:00:00Z',
-      },
-      canSpam: {
-        compliant: true,
-        unsubscribesPending: 0,
-        unsubscribesProcessed24h: 4,
-        physicalAddressPresent: true,
-      },
-      tcpa: {
-        compliant: true,
-        callConsentVerified: 18,
-        dncListChecked: true,
-        dncMatches: 0,
-      },
-      dataRetention: {
-        policy: '24 months inactive, 36 months active',
-        recordsExpiring30d: 15,
-        recordsArchived: 89,
-        autoEnforcementEnabled: true,
-      },
-      auditTrail: {
-        enabled: true,
-        totalEntries: 4521,
-        last7Days: 347,
-        accessTypes: { read: 2840, write: 1245, delete: 89, export: 347 },
-      },
-    };
-
-    const dataQualityScore = 94.2;
-
-    const dataQualityBreakdown = {
-      completeness: 96.1,
-      accuracy: 98.2,
-      consistency: 93.4,
-      timeliness: 91.8,
-      uniqueness: 99.4,
-    };
-
-    const summary = {
-      totalRecords,
-      recordsCleaned: totalRecords,
-      duplicatesRemoved: duplicatesFound,
-      fieldsNormalized: Object.values(normalization.changes).reduce((s, c) => s + c.count, 0),
-      recordsValidated: validation.totalValidated,
-      invalidRecordsQuarantined: validation.quarantinedRecords,
-      recordsEnriched: enrichment.recordsEnriched,
-      lifecycleTransitions: lifecycleUpdates.length,
-      interactionsLogged: totalInteractions,
-      dataQualityScore,
-      complianceStatus: 'fully compliant',
-    };
-
-    return {
-      deduplication,
-      normalization,
-      validation,
-      enrichment,
-      lifecycleUpdates,
-      validStages,
-      interactions,
-      interactionsByType,
-      totalInteractions,
-      compliance,
-      dataQualityScore,
-      dataQualityBreakdown,
-      summary,
-      reasoning: `Processed ${totalRecords} CRM records through complete hygiene pipeline. Deduplication: removed ${duplicatesFound} duplicates (${deduplication.duplicateRate}% rate) with ${deduplication.accuracy}% accuracy using multi-field fuzzy matching. Normalization: standardized ${summary.fieldsNormalized} field values across phone, email, company, country, and job title formats. Validation: ${validation.validationRate}% pass rate — quarantined ${validation.quarantinedRecords} invalid records (3 bad emails, 4 bad phones, 12 missing fields). Enrichment: enriched ${enrichment.recordsEnriched} records (${enrichment.enrichmentRate}% rate) via Apollo.io and Clearbit. Lifecycle: ${lifecycleUpdates.length} stage transitions tracked including 1 new customer (won). Interactions: ${totalInteractions} touchpoints logged across ${Object.keys(interactionsByType).length} interaction types. Compliance: fully GDPR/CAN-SPAM/TCPA compliant — 0 pending unsubscribes, 2 erasure requests processed, audit trail active. Data quality score: ${dataQualityScore}/100.`,
-      confidence: 93,
-    };
   }
 }

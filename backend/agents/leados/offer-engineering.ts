@@ -84,7 +84,9 @@ Return ONLY valid JSON (no markdown, no explanation outside JSON) with this stru
   "confidence": "number 0-100"
 }
 
-IMPORTANT: Create a REAL, actionable offer based on the actual market data provided. Do NOT be generic. Reference specific data points from the input. The offer should be ready to present to a real client.`;
+IMPORTANT: Create a REAL, actionable offer based on the actual market data provided. Do NOT be generic. Reference specific data points from the input. The offer should be ready to present to a real client.
+
+CRITICAL DATA INTEGRITY RULE: Do NOT generate projected, estimated, or fabricated performance metrics. ICP definitions, pricing strategy, guarantees, and positioning are creative/strategic outputs and are expected. However, do NOT invent measured metrics like conversion rates, revenue numbers, ROI figures, or traffic statistics. The trendInsights.searchInterest must come from real Google Trends data in the input — if not available, set it to 0. Never fabricate numbers that look like measured data.`;
 
 export class OfferEngineeringAgent extends BaseAgent {
   constructor() {
@@ -183,6 +185,24 @@ export class OfferEngineeringAgent extends BaseAgent {
 
       const response = await this.callClaude(SYSTEM_PROMPT, userMessage);
       const parsed = this.safeParseLLMJson<any>(response, ['offer']);
+
+      // Force-zero LLM-fabricated measured metrics in the offer
+      if (parsed.offer) {
+        // trendInsights.searchInterest should only come from real Google Trends input
+        if (parsed.offer.trendInsights) {
+          // Only keep searchInterest if we had real Google Trends data in the input
+          const realTrendsScore = topOpportunity?.googleTrendsScore || topOpportunity?.trendData?.googleTrendsScore;
+          if (!realTrendsScore) {
+            parsed.offer.trendInsights.searchInterest = 0;
+          }
+        }
+        // Zero any fabricated revenue/ROI/conversion metrics the LLM might inject
+        if (parsed.offer.estimatedRevenue !== undefined) parsed.offer.estimatedRevenue = 0;
+        if (parsed.offer.projectedClients !== undefined) parsed.offer.projectedClients = 0;
+        if (parsed.offer.projectedRevenue !== undefined) parsed.offer.projectedRevenue = 0;
+        if (parsed.offer.estimatedROI !== undefined) parsed.offer.estimatedROI = 0;
+        if (parsed.offer.conversionRate !== undefined) parsed.offer.conversionRate = 0;
+      }
 
       this.status = 'done';
       await this.log('run_completed', { serviceName: parsed.offer?.serviceName, confidence: parsed.confidence });
