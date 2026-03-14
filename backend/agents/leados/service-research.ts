@@ -42,6 +42,8 @@ Return ONLY valid JSON output (no markdown, no explanation outside JSON) with th
   "confidence": "number 0-100"
 }
 
+CRITICAL DATA INTEGRITY RULE: Do NOT generate projected, estimated, or fabricated metrics. Only include data that comes from real API responses provided in the input. For any metric that has not been measured from a real source, set it to 0 or null. Never invent numbers. The estimatedMarketSize field must reflect real data — if no authoritative market size data is provided, set it to "not_measured". Do NOT inflate demand, competition, or monetization scores beyond what the real data supports.
+
 Return top 5 opportunities. Base your analysis on the REAL data provided, not general knowledge.`;
 
 export class ServiceResearchAgent extends BaseAgent {
@@ -110,6 +112,14 @@ export class ServiceResearchAgent extends BaseAgent {
 
       const response = await this.callClaude(SYSTEM_PROMPT, userMessage);
       const parsed = this.safeParseLLMJson<any>(response, ['opportunities']);
+
+      // Force-zero LLM-fabricated numeric fields in opportunities
+      if (parsed.opportunities) {
+        for (const opp of parsed.opportunities) {
+          // estimatedMarketSize is an LLM guess — no authoritative source
+          opp.estimatedMarketSize = 'not_measured';
+        }
+      }
 
       // Merge real data source summary into output
       if (!parsed.dataSourcesSummary) {
