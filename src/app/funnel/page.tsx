@@ -131,9 +131,14 @@ function FunnelPage() {
         utmCampaign: searchParams.get('utm_campaign') || undefined,
       };
 
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      // Send auth token if user is logged in (for proper lead ownership)
+      const token = typeof window !== 'undefined' ? localStorage.getItem('leados_token') : null;
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
       const res = await fetch('/api/webhooks/lead-capture', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify(payload),
       });
 
