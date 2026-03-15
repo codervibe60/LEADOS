@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { getUserId } from '@/lib/auth';
 
 /**
  * POST /api/webhooks/lead-capture
@@ -25,6 +26,16 @@ export async function POST(req: Request) {
 
     const name = `${firstName} ${lastName}`.trim();
 
+    // Try to get userId from auth token (for logged-in users submitting forms)
+    // Also try to get userId from the project if pipelineId is provided
+    let userId: string | null = getUserId(req);
+    if (!userId && pipelineId) {
+      try {
+        const pipeline = await prisma.pipeline.findUnique({ where: { id: pipelineId }, select: { userId: true } });
+        if (pipeline?.userId) userId = pipeline.userId;
+      } catch { /* ignore */ }
+    }
+
     if (!name || !workEmail) {
       return NextResponse.json(
         { error: 'Name and email are required' },
@@ -32,9 +43,9 @@ export async function POST(req: Request) {
       );
     }
 
-    // Check for duplicate email
+    // Check for duplicate email (scoped to user if authenticated)
     const existingLead = await prisma.lead.findFirst({
-      where: { email: workEmail },
+      where: { email: workEmail, ...(userId && { userId }) },
     });
 
     if (existingLead) {
@@ -72,6 +83,7 @@ export async function POST(req: Request) {
         utmMedium: utmMedium || null,
         utmCampaign: utmCampaign || null,
         pipelineId: pipelineId || null,
+        userId: userId || undefined,
         notes: `Budget: ${monthlyMarketingBudget || 'N/A'}, Current leads: ${currentMonthlyLeads || 'N/A'}`,
         enrichmentData: JSON.stringify({
           monthlyMarketingBudget,
