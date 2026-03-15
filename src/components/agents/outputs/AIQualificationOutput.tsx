@@ -513,7 +513,7 @@ export function AIQualificationOutput({ data }: Props) {
             <Sparkles className="w-4 h-4 text-violet-400 flex-shrink-0" />
             <span className="text-xs sm:text-sm font-medium">Qualification Strategy</span>
           </div>
-          <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed break-words">{d.reasoning}</p>
+          <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed break-words">{typeof d.reasoning === 'string' ? d.reasoning : JSON.stringify(d.reasoning)}</p>
         </div>
       )}
     </div>

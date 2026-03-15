@@ -481,7 +481,7 @@ export function ContentCreativeOutput({ data }: Props) {
             <Sparkles className="w-4 h-4 text-pink-400 flex-shrink-0" />
             <span className="text-xs sm:text-sm font-medium">Creative Strategy</span>
           </div>
-          <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed break-words">{displayData.reasoning}</p>
+          <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed break-words">{typeof displayData.reasoning === 'string' ? displayData.reasoning : JSON.stringify(displayData.reasoning)}</p>
         </div>
       )}
     </div>

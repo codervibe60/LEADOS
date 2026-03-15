@@ -550,7 +550,7 @@ export function ServiceResearchOutput({ data, isLive = false }: Props) {
           <BarChart3 className="w-4 h-4 text-blue-400 flex-shrink-0" />
           <span className="text-xs sm:text-sm font-medium">Research Summary</span>
         </div>
-        <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed break-words">{displayData.reasoning}</p>
+        <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed break-words">{typeof displayData.reasoning === 'string' ? displayData.reasoning : JSON.stringify(displayData.reasoning)}</p>
       </div>
     </div>
   );

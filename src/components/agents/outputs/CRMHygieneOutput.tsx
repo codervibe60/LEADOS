@@ -137,7 +137,7 @@ export function CRMHygieneOutput({ data }: Props) {
             <Shield className="w-4 h-4 text-teal-400" />
             <span className="text-sm font-medium">Data Quality Score</span>
           </div>
-          <div className="text-3xl font-bold text-teal-400">{d.dataQualityScore || 0}<span className="text-sm text-muted-foreground">/100</span></div>
+          <div className="text-3xl font-bold text-teal-400">{typeof d.dataQualityScore === 'number' ? d.dataQualityScore : (d.dataQualityScore?.overall ?? 0)}<span className="text-sm text-muted-foreground">/100</span></div>
         </div>
         {Object.keys(qualityBreakdown).length > 0 && (
           <div className="space-y-1.5">
@@ -620,7 +620,7 @@ export function CRMHygieneOutput({ data }: Props) {
             <Sparkles className="w-4 h-4 text-teal-400 flex-shrink-0" />
             <span className="text-xs sm:text-sm font-medium">Hygiene Analysis</span>
           </div>
-          <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed break-words">{d.reasoning}</p>
+          <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed break-words">{typeof d.reasoning === 'string' ? d.reasoning : (d.reasoning?.runSummary || JSON.stringify(d.reasoning))}</p>
         </div>
       )}
     </div>
