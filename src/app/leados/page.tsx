@@ -223,7 +223,7 @@ export default function LeadOSPage() {
     try {
       const created = await pipelinesApi.create({
         type: 'leados',
-        config: {},
+        config: { enabledAgentIds: [...enabledAgentIds] },
         projectId: selectedProjectId || undefined,
       });
       setPipelineId(created.id);
@@ -888,7 +888,7 @@ export default function LeadOSPage() {
                                   )}
                                 </div>
                                 {pipelineAgent?.outputPreview && status === 'done' && (
-                                  <p className="text-[10px] text-zinc-500 truncate mt-0.5">{pipelineAgent.outputPreview}</p>
+                                  <p className="text-[10px] text-zinc-500 truncate mt-0.5">{typeof pipelineAgent.outputPreview === 'string' ? pipelineAgent.outputPreview : 'Completed successfully'}</p>
                                 )}
                                 {pipelineAgent?.error && status === 'error' && (
                                   <p className="text-[10px] text-red-400 truncate mt-0.5">{pipelineAgent.error}</p>

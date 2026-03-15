@@ -277,10 +277,17 @@ function LeadsPageInner() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
-                        <div className="h-2 w-16 overflow-hidden rounded-full bg-zinc-800">
-                          <div className={cn('h-full rounded-full', lead.score >= 80 ? 'bg-emerald-500' : lead.score >= 60 ? 'bg-amber-500' : 'bg-red-500')} style={{ width: `${lead.score}%` }} />
-                        </div>
-                        <span className="text-xs text-zinc-400">{lead.score}</span>
+                        {(() => {
+                          const displayScore = lead.qualificationScore ?? lead.score ?? 0;
+                          return (
+                            <>
+                              <div className="h-2 w-16 overflow-hidden rounded-full bg-zinc-800">
+                                <div className={cn('h-full rounded-full', displayScore >= 80 ? 'bg-emerald-500' : displayScore >= 60 ? 'bg-amber-500' : 'bg-red-500')} style={{ width: `${displayScore}%` }} />
+                              </div>
+                              <span className="text-xs text-zinc-400">{displayScore}</span>
+                            </>
+                          );
+                        })()}
                       </div>
                     </td>
                     <td className="px-4 py-3">

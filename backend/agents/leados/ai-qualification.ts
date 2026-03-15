@@ -192,15 +192,30 @@ export class AIQualificationAgent extends BaseAgent {
         } catch { /* continue without DB lookup */ }
       }
 
-      // Validate phone numbers — only international format (+ followed by 10+ digits) are callable
-      const isValidPhone = (phone: string | null | undefined): boolean => {
-        if (!phone) return false;
-        const cleaned = phone.replace(/[\s\-()]/g, '');
-        // Must start with + and have at least 10 digits total (e.g., +918766827064)
-        return /^\+\d{10,15}$/.test(cleaned);
+      // Validate phone numbers and normalize to international format for Bland AI
+      const normalizePhone = (phone: string | null | undefined): string | null => {
+        if (!phone) return null;
+        const cleaned = phone.replace(/[\s\-().]/g, '');
+        // Already international format
+        if (/^\+\d{10,15}$/.test(cleaned)) return cleaned;
+        // US/CA 10-digit without country code — add +1
+        if (/^\d{10}$/.test(cleaned)) return `+1${cleaned}`;
+        // US/CA with leading 1 (11 digits)
+        if (/^1\d{10}$/.test(cleaned)) return `+${cleaned}`;
+        // Indian 10-digit without country code — add +91
+        if (/^[6-9]\d{9}$/.test(cleaned)) return `+91${cleaned}`;
+        // Any number with 10+ digits — assume it needs a +
+        if (/^\d{10,15}$/.test(cleaned)) return `+${cleaned}`;
+        return null;
       };
+      const isValidPhone = (phone: string | null | undefined): boolean => normalizePhone(phone) !== null;
 
       // Split leads: callable (valid phone) vs email-only (no/invalid phone)
+      // Normalize phone numbers for calling
+      for (const lead of qualifiedLeads) {
+        const normalized = normalizePhone(lead.phone);
+        if (normalized) lead.phone = normalized;
+      }
       const callableLeads = qualifiedLeads.filter((l: any) => isValidPhone(l.phone));
       const emailOnlyLeads = qualifiedLeads.filter((l: any) => !isValidPhone(l.phone));
 
@@ -418,6 +433,7 @@ For leads in emailOnlyLeads: set callStatus to "no_valid_phone", outcome to "med
             where: { email: result.leadEmail },
             data: {
               stage: newStage,
+              score: result.score || undefined,
               qualificationScore: result.score || null,
               qualificationOutcome: result.outcome || null,
               routingDecision: result.routingAction || null,

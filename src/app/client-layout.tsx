@@ -91,7 +91,7 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
               status: 'done',
               progress: 100,
               lastRunTime: data.timestamp,
-              outputPreview: data.outputSummary,
+              outputPreview: typeof data.outputSummary === 'string' ? data.outputSummary : (data.outputSummary ? JSON.stringify(data.outputSummary).slice(0, 120) : 'Completed'),
             });
             addActivity({
               type: 'agent_completed',

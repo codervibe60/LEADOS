@@ -289,10 +289,23 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     // ignore
   }
 
+  // Also check pipeline's own config for enabledAgentIds (passed from frontend)
+  if (!enabledAgentIds) {
+    try {
+      const pipelineRecord = await prisma.pipeline.findUnique({ where: { id }, select: { config: true } });
+      if (pipelineRecord?.config) {
+        const pipelineCfg = typeof pipelineRecord.config === 'string' ? JSON.parse(pipelineRecord.config) : pipelineRecord.config;
+        if (Array.isArray(pipelineCfg.enabledAgentIds)) {
+          enabledAgentIds = pipelineCfg.enabledAgentIds;
+        }
+      }
+    } catch { /* ignore */ }
+  }
+
   // Determine which agents to run
   let agentsToRun: string[];
   if (enabledAgentIds) {
-    // Use project-specific agent selection, preserving pipeline order
+    // Use agent selection from project or pipeline config, preserving pipeline order
     const enabledSet = new Set(enabledAgentIds);
     agentsToRun = ALL_AGENTS.filter((a) => enabledSet.has(a));
   } else if (isInternal) {

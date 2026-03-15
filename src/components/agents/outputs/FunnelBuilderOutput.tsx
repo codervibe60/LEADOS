@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   Globe,
   FileText,
@@ -438,7 +438,22 @@ function QuickStat({ icon, label, value }: { icon: React.ReactNode; label: strin
   );
 }
 
-function LeadCaptureForm({ fields }: { fields: FormField[] }) {
+function LeadCaptureForm({ fields: rawFields }: { fields: FormField[] }) {
+  // Ensure phone field is always present
+  const fields = useMemo(() => {
+    const list = [...(rawFields || [])];
+    const hasPhone = list.some(f =>
+      f.type === 'phone' || f.name?.toLowerCase().includes('phone') || f.name?.toLowerCase().includes('mobile')
+    );
+    if (!hasPhone) {
+      // Insert phone field after email or at the end
+      const emailIdx = list.findIndex(f => f.type === 'email' || f.name?.toLowerCase().includes('email'));
+      const phoneField: FormField = { name: 'phone', type: 'phone', label: 'Phone Number', placeholder: '+1 (555) 000-0000', required: false };
+      list.splice(emailIdx >= 0 ? emailIdx + 1 : list.length, 0, phoneField);
+    }
+    return list;
+  }, [rawFields]);
+
   const [formData, setFormData] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
